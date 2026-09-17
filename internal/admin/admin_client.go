@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -30,6 +31,12 @@ const (
 	DefaultBaseRetryDelay = 500 * time.Millisecond
 	// DefaultMaxRetryDelay caps the exponential backoff.
 	DefaultMaxRetryDelay = 8 * time.Second
+
+	// MaxErrorBodyBytes is how much of a response body an error message
+	// carries. Anthropic's error envelopes fit comfortably; anything larger
+	// comes from something other than the API and would otherwise land in
+	// Terraform output and CI logs whole.
+	MaxErrorBodyBytes = 512
 
 	// maxRetryAfter caps how long a server-supplied retry-after header can hold
 	// up an apply. The SDK honours the header verbatim; a Terraform provider
@@ -77,6 +84,20 @@ func (e *APIError) Error() string {
 		return fmt.Sprintf("API error (%d %s): %s", e.StatusCode, e.ErrType, e.Message)
 	}
 	return fmt.Sprintf("API error (%d): %s", e.StatusCode, e.Message)
+}
+
+// TruncateBody caps text taken from a response at MaxErrorBodyBytes, on a
+// rune boundary, and notes how much was dropped. internal/errors applies it
+// to SDK errors as well.
+func TruncateBody(s string) string {
+	if len(s) <= MaxErrorBodyBytes {
+		return s
+	}
+	n := MaxErrorBodyBytes
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return fmt.Sprintf("%s... [%d more bytes truncated]", s[:n], len(s)-n)
 }
 
 // IsNotFound returns true when err is an APIError with status 404.
@@ -175,7 +196,7 @@ func (c *Client) attempt(template *http.Request, reqBody []byte) ([]byte, *http.
 		// than echoing the redirect page.
 		return nil, resp, &APIError{
 			StatusCode: resp.StatusCode,
-			Message:    fmt.Sprintf("refused to follow the redirect to %q", resp.Header.Get("Location")),
+			Message:    fmt.Sprintf("refused to follow the redirect to %q", TruncateBody(resp.Header.Get("Location"))),
 		}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -195,13 +216,13 @@ func newAPIError(statusCode int, respBody []byte) *APIError {
 	if json.Unmarshal(respBody, &envelope) == nil && envelope.Error.Message != "" {
 		return &APIError{
 			StatusCode: statusCode,
-			ErrType:    envelope.Error.Type,
-			Message:    envelope.Error.Message,
+			ErrType:    TruncateBody(envelope.Error.Type),
+			Message:    TruncateBody(envelope.Error.Message),
 		}
 	}
 	return &APIError{
 		StatusCode: statusCode,
-		Message:    string(respBody),
+		Message:    TruncateBody(string(respBody)),
 	}
 }
 

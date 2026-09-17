@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // --- APIError ---
@@ -27,6 +29,50 @@ func TestAdminAPIError_Error(t *testing.T) {
 	noType := &APIError{StatusCode: 500, Message: "internal server error"}
 	if got := noType.Error(); got != "API error (500): internal server error" {
 		t.Fatalf("unexpected: %q", got)
+	}
+}
+
+// --- newAPIError / TruncateBody ---
+
+func TestNewAPIError_capsTheBodyItEchoes(t *testing.T) {
+	long := strings.Repeat("a", MaxErrorBodyBytes+100)
+	wantSuffix := "... [100 more bytes truncated]"
+
+	t.Run("body that is not an error envelope", func(t *testing.T) {
+		got := newAPIError(502, []byte(long))
+		if got.Message != long[:MaxErrorBodyBytes]+wantSuffix {
+			t.Errorf("Message = %q, want the first %d bytes and a note", got.Message, MaxErrorBodyBytes)
+		}
+	})
+	t.Run("envelope with a long message", func(t *testing.T) {
+		got := newAPIError(400, []byte(`{"error":{"type":"invalid_request_error","message":"`+long+`"}}`))
+		if got.ErrType != "invalid_request_error" {
+			t.Errorf("ErrType = %q", got.ErrType)
+		}
+		if got.Message != long[:MaxErrorBodyBytes]+wantSuffix {
+			t.Errorf("Message = %q, want the first %d bytes and a note", got.Message, MaxErrorBodyBytes)
+		}
+	})
+	t.Run("body at the limit is kept whole", func(t *testing.T) {
+		exact := strings.Repeat("b", MaxErrorBodyBytes)
+		if got := newAPIError(500, []byte(exact)); got.Message != exact {
+			t.Errorf("Message = %q, want it untouched", got.Message)
+		}
+	})
+}
+
+func TestTruncateBody_cutsOnARuneBoundary(t *testing.T) {
+	s := strings.Repeat("é", MaxErrorBodyBytes) // two bytes each
+	got := TruncateBody(s)
+	kept, note, found := strings.Cut(got, "... [")
+	if !found {
+		t.Fatalf("TruncateBody(%d bytes) = %q, want a truncation note", len(s), got)
+	}
+	if !utf8.ValidString(kept) || len(kept) > MaxErrorBodyBytes {
+		t.Errorf("kept %d bytes, valid UTF-8 = %v; want at most %d valid bytes", len(kept), utf8.ValidString(kept), MaxErrorBodyBytes)
+	}
+	if want := fmt.Sprintf("%d more bytes truncated]", len(s)-len(kept)); note != want {
+		t.Errorf("note = %q, want %q", note, want)
 	}
 }
 
