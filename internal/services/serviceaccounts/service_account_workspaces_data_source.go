@@ -137,7 +137,7 @@ func (d *ServiceAccountWorkspacesDataSource) Read(ctx context.Context, req datas
 	}
 
 	if err := pager.Err(); err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list service account workspaces: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list service account workspaces: %s", providerrors.Detail(err)))
 		return
 	}
 

@@ -172,7 +172,7 @@ func (d *ServiceAccountsDataSource) Read(ctx context.Context, req datasource.Rea
 	}
 
 	if err := pager.Err(); err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list service accounts: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list service accounts: %s", providerrors.Detail(err)))
 		return
 	}
 

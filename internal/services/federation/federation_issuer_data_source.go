@@ -217,7 +217,7 @@ func (d *FederationIssuerDataSource) Read(ctx context.Context, req datasource.Re
 
 	issuer, err := d.client.Beta.Organization.Federation.Issuers.Get(ctx, data.ID.ValueString(), anthropic.BetaOrganizationFederationIssuerGetParams{})
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read federation issuer: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read federation issuer: %s", providerrors.Detail(err)))
 		return
 	}
 

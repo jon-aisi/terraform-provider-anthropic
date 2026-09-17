@@ -190,7 +190,7 @@ func (r *ServiceAccountResource) Create(ctx context.Context, req resource.Create
 
 	sa, err := r.client.Beta.Organization.ServiceAccounts.New(ctx, params)
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create service account: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create service account: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -220,7 +220,7 @@ func (r *ServiceAccountResource) Read(ctx context.Context, req resource.ReadRequ
 			resp.State.RemoveResource(ctx)
 			return
 		}
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read service account: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read service account: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -326,7 +326,7 @@ func (r *ServiceAccountResource) Update(ctx context.Context, req resource.Update
 
 	sa, err := r.client.Beta.Organization.ServiceAccounts.Update(ctx, state.ID.ValueString(), params)
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update service account: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update service account: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -351,7 +351,7 @@ func (r *ServiceAccountResource) Delete(ctx context.Context, req resource.Delete
 
 	_, err := r.client.Beta.Organization.ServiceAccounts.Archive(ctx, data.ID.ValueString(), anthropic.BetaOrganizationServiceAccountArchiveParams{})
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to archive service account: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to archive service account: %s", providerrors.Detail(err)))
 	}
 }
 

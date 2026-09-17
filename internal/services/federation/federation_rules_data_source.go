@@ -288,7 +288,7 @@ func (d *FederationRulesDataSource) Read(ctx context.Context, req datasource.Rea
 	}
 
 	if err := pager.Err(); err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list federation rules: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list federation rules: %s", providerrors.Detail(err)))
 		return
 	}
 

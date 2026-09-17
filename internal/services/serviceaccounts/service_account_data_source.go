@@ -129,7 +129,7 @@ func (d *ServiceAccountDataSource) Read(ctx context.Context, req datasource.Read
 
 	sa, err := d.client.Beta.Organization.ServiceAccounts.Get(ctx, data.ID.ValueString(), anthropic.BetaOrganizationServiceAccountGetParams{})
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read service account: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read service account: %s", providerrors.Detail(err)))
 		return
 	}
 

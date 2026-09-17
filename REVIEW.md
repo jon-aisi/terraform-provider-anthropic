@@ -6,7 +6,7 @@ re-derived after a rebase. `vendor/` is excluded from every count.
 
 ## What remains
 
-Go, excluding `vendor/`: 18,852 lines (7,843 non-test, 11,009 test); 284 test
+Go, excluding `vendor/`: 18,928 lines (7,845 non-test, 11,083 test); 285 test
 functions, of which 19 are acceptance tests (`TestAcc*`, run only with
 `TF_ACC=1`, live credentials, and `ANTHROPIC_TEST_ORGANIZATION_ID` naming the
 organisation the credential belongs to). Upstream `main` had 30,440 lines and
@@ -21,7 +21,7 @@ addressed".
 | `internal/admin` | 338 | 861 | Hand-rolled HTTP client for `/v1/organizations/workspaces*` with retries. Used only by `workspaces`. |
 | `internal/errors` | 105 | 323 | Nil-client guards that turn a missing credential into a diagnostic; `Detail` caps the response body an SDK error prints. |
 | `internal/tfvalue` | 32 | 28 | `""`/zero-time to null helpers. |
-| `internal/services/federation` | 3,888 | 5,399 | `anthropic_federation_issuer`, `_rule`, `_rule_workspace` resources; `federation_issuer(s)`, `federation_rule(s)`, `federation_rule_workspaces` data sources. SDK client. Issuer and rule carry `ModifyPlan` warnings for in-place trust and grant changes and warn in `Read` when archived out of band. |
+| `internal/services/federation` | 3,888 | 5,473 | `anthropic_federation_issuer`, `_rule`, `_rule_workspace` resources; `federation_issuer(s)`, `federation_rule(s)`, `federation_rule_workspaces` data sources. SDK client. Issuer and rule carry `ModifyPlan` warnings for in-place trust and grant changes and warn in `Read` when archived out of band. |
 | `internal/services/serviceaccounts` | 1,338 | 2,350 | `anthropic_service_account`, `_service_account_workspace` resources; `service_account(s)`, `service_account_workspaces` data sources. SDK client. The workspace role changes in place through the Add upsert. |
 | `internal/services/workspaces` | 876 | 598 | `anthropic_workspace` resource; `workspace`, `workspaces` data sources. Admin client. `workspacetest_test.go` holds the shared test scaffolding; nothing under `net/http/httptest` links into the binary (`go list -deps . \| grep -c httptest` is 0). |
 | `internal/acctest` | 346 | 0 | Acceptance-test provider factory, pre-checks with the organisation guard (`ANTHROPIC_TEST_ORGANIZATION_ID` must equal what `GET /v1/organizations/me` returns for the credential), `ANTHROPIC_TEST_WORKSPACE_ID`, `tf-acc-*` random names, a per-run RSA JWK, and the sweepers behind `make sweep`. Test-only; not linked into the binary. |
@@ -256,18 +256,20 @@ added without a decision.
   says an Admin API key is not accepted) or `Missing Admin API Key`. This is
   how a configuration with only `admin_api_key` and federation resources
   fails, at plan time, before any request.
-- API failures become `resp.Diagnostics.AddError(<summary>, "...: " + err)`
-  in the services. For the SDK, `anthropic.Error.Error()` is `METHOD "URL":
-  STATUS text (Request-ID: ...) <raw JSON response body>`; `errors.Detail(err)`
-  returns the same text with the body capped at 512 bytes
-  (`admin.MaxErrorBodyBytes`, `admin.TruncateBody`) and is what those sites
-  should pass instead of `err`; the services do not call it yet. For the
-  admin client, `APIError` is
-  `API error (STATUS type): message`, where `message` is the API's
-  `error.message`, or the raw body when it is not JSON, either capped at 512
-  bytes when the error is built; a 3xx reads `refused to follow the redirect
-  to "<Location>"`. Until the services call `errors.Detail`, an SDK error's
-  body still reaches Terraform output whole. Federation exchange failures
+- API failures become `resp.Diagnostics.AddError("Client Error", "...: " +
+  errors.Detail(err))` in the services (33 sites:
+  `rg -n 'AddError\("Client Error"' internal/services --glob '!*_test.go'`).
+  For the SDK, `anthropic.Error.Error()` is `METHOD "URL": STATUS text
+  (Request-ID: ...) <raw JSON response body>`; `errors.Detail` returns the
+  same text with the body capped at 512 bytes (`admin.MaxErrorBodyBytes`,
+  `admin.TruncateBody`); `TestFederationIssuerRead_ErrorBodyIsTruncatedInTheDiagnostic`
+  drives a 2 KB body through a resource `Read` and checks the diagnostic.
+  For the admin client, `APIError` is `API error (STATUS type): message`,
+  where `message` is the API's `error.message`, or the raw body when it is
+  not JSON, either capped at 512 bytes when the error is built; a 3xx reads
+  `refused to follow the redirect to "<Location>"`. The other `AddError`
+  sites carry credential guards and JSON decoding errors, never a response
+  body. Federation exchange failures
   surface as `failed to get credentials token: oauth token request failed
   (status N); request id ...; <error>: <error_description>` with the body
   redacted by the SDK, plus a hint on 401.
@@ -318,7 +320,7 @@ package), so its dependency tree is not vulnerability-scanned in CI; its
 ## Diff vs upstream
 
 `git diff --stat upstream/main...HEAD -- . ':!vendor'`:
-355 files changed, 5,608 insertions, 23,684 deletions. The insertions are
+368 files changed, 5,644 insertions, 23,718 deletions. The insertions are
 `internal/provider/{federation,base_url,httpclient}.go` and their tests
 (~1,350 lines), the CI and release changes (~350), the resource fixes under
 "Findings addressed" and their tests (~1,700), `internal/acctest` (~350),
@@ -336,10 +338,10 @@ resource fixes listed under "Findings addressed".
 Things in upstream, the SDK or this fork worth a deliberate look. None is a
 known defect.
 
-1. **Response bodies in diagnostics.** Capped at 512 bytes in the admin
-   client's `APIError`; `errors.Detail` applies the same cap to SDK errors
-   but the services still pass `err` directly (see Errors), so that half
-   is still open.
+1. **Response bodies in diagnostics.** Capped at 512 bytes: in the admin
+   client's `APIError` when it is built, and by `errors.Detail` at every
+   `Client Error` site for SDK errors (see Errors). Anything sitting at
+   `base_url` can still put that much arbitrary text into Terraform output.
 2. **Server-driven POST replay.** `admin.shouldRetry` replays a create when
    the server answers `x-should-retry: true`, whatever the status. A hostile
    or buggy endpoint could induce duplicate workspaces. Only the admin client;
@@ -412,7 +414,7 @@ confirm.
 | Transport | 2 retried creates | `d211322` | `option.WithMaxRetries(0)` on the SDK client. | — |
 | Transport | 3 `jti` re-exchange | `eb84e05` | Documented; the CI example refreshes the token before each Terraform command. | — |
 | Transport | 5 destination set silently | `3332ab5` | `Non-default API Destination` warning. | — |
-| Transport | 6 raw bodies in diagnostics | `c7fb7f2` | 512-byte cap in `admin.APIError`; `errors.Detail` for SDK errors, for the services to adopt. | — |
+| Transport | 6 raw bodies in diagnostics | `c7fb7f2` | 512-byte cap in `admin.APIError`; `errors.Detail` for SDK errors, called at every `Client Error` site once the branches were combined. | — |
 | Transport | 7 test scaffolding in the binary (the resources review's unnumbered last item) | `994d38d` | `workspacetest.go` moved to `workspacetest_test.go`; `go list -deps . \| grep -c httptest` is 0. | — |
 | Transport | 8 info items | `0ab8cec` | Token file read at Configure; warning for a base URL path with federation; `TF_LOG_SDK_PROTO_DATA_DIR` note. | — |
 | Resources | 1 Release never verifies `vendor/` | `1390df0` | The release job re-vendors and diffs `vendor/`, then builds and runs the tests before GoReleaser. | Create the `v*` tag ruleset in the organisation repository (RELEASE.md). |

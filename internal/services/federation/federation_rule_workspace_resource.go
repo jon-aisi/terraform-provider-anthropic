@@ -149,7 +149,7 @@ func (r *FederationRuleWorkspaceResource) Create(ctx context.Context, req resour
 		WorkspaceID: workspaceID,
 	})
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to enable federation rule for workspace: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to enable federation rule for workspace: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -198,7 +198,7 @@ func (r *FederationRuleWorkspaceResource) Read(ctx context.Context, req resource
 			resp.State.RemoveResource(ctx)
 			return
 		}
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list federation rule workspaces: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list federation rule workspaces: %s", providerrors.Detail(err)))
 		return
 	}
 	if found == nil {
@@ -237,7 +237,7 @@ func (r *FederationRuleWorkspaceResource) Delete(ctx context.Context, req resour
 		FederationRuleID: data.FederationRuleID.ValueString(),
 	})
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to disable federation rule for workspace: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to disable federation rule for workspace: %s", providerrors.Detail(err)))
 	}
 }
 

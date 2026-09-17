@@ -170,7 +170,7 @@ func (d *WorkspacesDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		path := "/v1/organizations/workspaces?" + params.Encode()
 		respBytes, err := d.adminClient.DoRequest(ctx, "GET", path, nil)
 		if err != nil {
-			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list workspaces: %s", err))
+			resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list workspaces: %s", providerrors.Detail(err)))
 			return
 		}
 

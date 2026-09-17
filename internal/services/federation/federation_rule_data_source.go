@@ -236,7 +236,7 @@ func (d *FederationRuleDataSource) Read(ctx context.Context, req datasource.Read
 
 	rule, err := d.client.Beta.Organization.Federation.Rules.Get(ctx, data.ID.ValueString(), anthropic.BetaOrganizationFederationRuleGetParams{})
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to retrieve federation rule: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to retrieve federation rule: %s", providerrors.Detail(err)))
 		return
 	}
 

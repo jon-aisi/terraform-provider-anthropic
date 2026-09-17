@@ -254,7 +254,7 @@ func (d *FederationIssuersDataSource) Read(ctx context.Context, req datasource.R
 	}
 
 	if err := pager.Err(); err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list federation issuers: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list federation issuers: %s", providerrors.Detail(err)))
 		return
 	}
 

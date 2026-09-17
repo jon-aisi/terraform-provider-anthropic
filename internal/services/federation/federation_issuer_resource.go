@@ -445,7 +445,7 @@ func (r *FederationIssuerResource) Create(ctx context.Context, req resource.Crea
 
 	issuer, err := r.client.Beta.Organization.Federation.Issuers.New(ctx, params)
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create federation issuer: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create federation issuer: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -475,7 +475,7 @@ func (r *FederationIssuerResource) Read(ctx context.Context, req resource.ReadRe
 			resp.State.RemoveResource(ctx)
 			return
 		}
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read federation issuer: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read federation issuer: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -538,7 +538,7 @@ func (r *FederationIssuerResource) Update(ctx context.Context, req resource.Upda
 
 	issuer, err := r.client.Beta.Organization.Federation.Issuers.Update(ctx, state.ID.ValueString(), params)
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update federation issuer: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update federation issuer: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -564,7 +564,7 @@ func (r *FederationIssuerResource) Delete(ctx context.Context, req resource.Dele
 
 	_, err := r.client.Beta.Organization.Federation.Issuers.Archive(ctx, data.ID.ValueString(), anthropic.BetaOrganizationFederationIssuerArchiveParams{})
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to archive federation issuer: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to archive federation issuer: %s", providerrors.Detail(err)))
 	}
 }
 

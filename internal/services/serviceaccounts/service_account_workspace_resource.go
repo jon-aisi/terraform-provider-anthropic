@@ -138,7 +138,7 @@ func (r *ServiceAccountWorkspaceResource) Create(ctx context.Context, req resour
 
 	member, err := addServiceAccountToWorkspace(ctx, r.client, data.ServiceAccountID.ValueString(), data.WorkspaceID.ValueString(), data.WorkspaceRole.ValueString())
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to add service account to workspace: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to add service account to workspace: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -168,7 +168,7 @@ func (r *ServiceAccountWorkspaceResource) Read(ctx context.Context, req resource
 			resp.State.RemoveResource(ctx)
 			return
 		}
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list service account workspace memberships: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list service account workspace memberships: %s", providerrors.Detail(err)))
 		return
 	}
 	if member == nil {
@@ -198,7 +198,7 @@ func (r *ServiceAccountWorkspaceResource) Update(ctx context.Context, req resour
 
 	member, err := addServiceAccountToWorkspace(ctx, r.client, plan.ServiceAccountID.ValueString(), plan.WorkspaceID.ValueString(), plan.WorkspaceRole.ValueString())
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update service account workspace role: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update service account workspace role: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -228,7 +228,7 @@ func (r *ServiceAccountWorkspaceResource) Delete(ctx context.Context, req resour
 	// isolates the call so a unit test can assert the request path directly.
 	err := removeServiceAccountFromWorkspace(ctx, r.client, data.ServiceAccountID.ValueString(), data.WorkspaceID.ValueString())
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to remove service account from workspace: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to remove service account from workspace: %s", providerrors.Detail(err)))
 		return
 	}
 }

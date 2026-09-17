@@ -148,7 +148,7 @@ func (d *FederationRuleWorkspacesDataSource) Read(ctx context.Context, req datas
 	}
 
 	if err := pager.Err(); err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list workspaces for federation rule %q: %s", federationRuleID, err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to list workspaces for federation rule %q: %s", federationRuleID, providerrors.Detail(err)))
 		return
 	}
 

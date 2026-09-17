@@ -222,7 +222,7 @@ func (r *WorkspaceResource) Create(ctx context.Context, req resource.CreateReque
 
 	respBytes, err := r.adminClient.DoRequest(ctx, "POST", "/v1/organizations/workspaces", body)
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create workspace: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create workspace: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -255,7 +255,7 @@ func (r *WorkspaceResource) Read(ctx context.Context, req resource.ReadRequest, 
 			resp.State.RemoveResource(ctx)
 			return
 		}
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read workspace: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read workspace: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -307,7 +307,7 @@ func (r *WorkspaceResource) Update(ctx context.Context, req resource.UpdateReque
 
 	respBytes, err := r.adminClient.DoRequest(ctx, "POST", "/v1/organizations/workspaces/"+state.ID.ValueString(), body)
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update workspace: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update workspace: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -336,7 +336,7 @@ func (r *WorkspaceResource) Delete(ctx context.Context, req resource.DeleteReque
 
 	_, err := r.adminClient.DoRequest(ctx, "POST", "/v1/organizations/workspaces/"+data.ID.ValueString()+"/archive", nil)
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to archive workspace: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to archive workspace: %s", providerrors.Detail(err)))
 		return
 	}
 }

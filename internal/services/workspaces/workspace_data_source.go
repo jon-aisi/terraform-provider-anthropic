@@ -113,7 +113,7 @@ func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadReque
 
 	respBytes, err := d.client.DoRequest(ctx, "GET", "/v1/organizations/workspaces/"+data.ID.ValueString(), nil)
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read workspace: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read workspace: %s", providerrors.Detail(err)))
 		return
 	}
 

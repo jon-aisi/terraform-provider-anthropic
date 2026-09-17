@@ -613,7 +613,7 @@ func (r *FederationRuleResource) Create(ctx context.Context, req resource.Create
 
 	rule, err := r.client.Beta.Organization.Federation.Rules.New(ctx, params)
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create federation rule: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to create federation rule: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -643,7 +643,7 @@ func (r *FederationRuleResource) Read(ctx context.Context, req resource.ReadRequ
 			resp.State.RemoveResource(ctx)
 			return
 		}
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read federation rule: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to read federation rule: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -750,7 +750,7 @@ func (r *FederationRuleResource) Update(ctx context.Context, req resource.Update
 
 	rule, err := r.client.Beta.Organization.Federation.Rules.Update(ctx, state.ID.ValueString(), params)
 	if err != nil {
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update federation rule: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update federation rule: %s", providerrors.Detail(err)))
 		return
 	}
 
@@ -782,7 +782,7 @@ func (r *FederationRuleResource) Delete(ctx context.Context, req resource.Delete
 			// Already gone — treat as success.
 			return
 		}
-		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to archive federation rule: %s", err))
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to archive federation rule: %s", providerrors.Detail(err)))
 	}
 }
 
