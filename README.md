@@ -1,23 +1,35 @@
-# Terraform Provider Anthropic
+# Terraform Provider Anthropic (WIF subset)
 
-A Terraform provider for managing [Anthropic's Claude API resources](https://platform.claude.com/docs/en/api/overview).
+A fork of [ippontech/terraform-provider-anthropic](https://github.com/ippontech/terraform-provider-anthropic)
+trimmed to the Workload Identity Federation subset of the Anthropic Admin API:
+federation issuers, service accounts, service account workspace memberships,
+federation rules, rule workspaces and workspaces. The provider authenticates
+either with a static `org:admin` bearer or by exchanging the workload's own
+OIDC identity token itself, so CI stores no Anthropic credential.
 
-## Status
+- [`docs/index.md`](docs/index.md): configuration and authentication.
+- [`docs/guides/workload_identity_federation.md`](docs/guides/workload_identity_federation.md): bootstrap and end-to-end setup.
+- [`FORK.md`](FORK.md): why the fork exists, what was removed, how to sync with upstream.
+- [`REVIEW.md`](REVIEW.md): review map (packages, network calls, credentials, dependencies).
+- [`RELEASE.md`](RELEASE.md): tagging, signing, provenance.
 
-![Status](https://img.shields.io/badge/status-development-yellow?style=flat)
+## CI
 
-## CI/CD
+[![Provider](https://github.com/jon-aisi/terraform-provider-anthropic/actions/workflows/provider.yml/badge.svg?branch=aisi%2Fwif-subset)](https://github.com/jon-aisi/terraform-provider-anthropic/actions/workflows/provider.yml)
+[![Security](https://github.com/jon-aisi/terraform-provider-anthropic/actions/workflows/security.yml/badge.svg?branch=aisi%2Fwif-subset)](https://github.com/jon-aisi/terraform-provider-anthropic/actions/workflows/security.yml)
+[![CodeQL](https://github.com/jon-aisi/terraform-provider-anthropic/actions/workflows/codeql.yml/badge.svg?branch=aisi%2Fwif-subset)](https://github.com/jon-aisi/terraform-provider-anthropic/actions/workflows/codeql.yml)
+[![GoReleaser Check](https://github.com/jon-aisi/terraform-provider-anthropic/actions/workflows/goreleaser-check.yml/badge.svg?branch=aisi%2Fwif-subset)](https://github.com/jon-aisi/terraform-provider-anthropic/actions/workflows/goreleaser-check.yml)
 
-[![Provider](https://github.com/ippontech/terraform-provider-anthropic/actions/workflows/provider.yml/badge.svg)](https://github.com/ippontech/terraform-provider-anthropic/actions/workflows/provider.yml)
-[![Acceptance Tests](https://github.com/ippontech/terraform-provider-anthropic/actions/workflows/testacc.yml/badge.svg)](https://github.com/ippontech/terraform-provider-anthropic/actions/workflows/testacc.yml)
-[![Security](https://github.com/ippontech/terraform-provider-anthropic/actions/workflows/security.yml/badge.svg)](https://github.com/ippontech/terraform-provider-anthropic/actions/workflows/security.yml)
-[![GoReleaser Check](https://github.com/ippontech/terraform-provider-anthropic/actions/workflows/goreleaser-check.yml/badge.svg)](https://github.com/ippontech/terraform-provider-anthropic/actions/workflows/goreleaser-check.yml)
-[![GoReleaser Release](https://github.com/ippontech/terraform-provider-anthropic/actions/workflows/goreleaser-release.yml/badge.svg)](https://github.com/ippontech/terraform-provider-anthropic/actions/workflows/goreleaser-release.yml)
+## Building
 
-## Authors
+```bash
+go build ./... && go vet ./... && go test ./...
+make install        # go install; then point Terraform at it with dev_overrides, see CONTRIBUTING.md
+```
 
-- Timothée Aufort [taufort@ippon.fr]
+Dependencies are vendored; `go build` uses `vendor/` without network access.
 
-## Contributing
+## Licence
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+MPL-2.0, as upstream. See [`LICENSE`](LICENSE). Upstream authors: Ippon
+Technologies (Timothée Aufort).
