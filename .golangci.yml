@@ -1,0 +1,43 @@
+# golangci-lint v2 configuration. The version that runs is pinned in
+# .github/workflows/provider.yml (golangci-lint-action `version`) and
+# mise.toml; keep the three in step.
+version: "2"
+
+run:
+  timeout: 5m
+  # Dependencies are vendored and the build uses vendor/ (Go's default when
+  # vendor/modules.txt exists); lint against the same tree.
+  modules-download-mode: vendor
+
+linters:
+  default: standard
+  enable:
+    - errorlint
+    - gosec
+    - misspell
+    - unconvert
+  settings:
+    errorlint:
+      # errors.As on *anthropic.Error is the SDK's documented pattern; the
+      # comparison checks are what matter here.
+      errorf: true
+      asserts: true
+      comparison: true
+  exclusions:
+    generated: lax
+    presets:
+      - std-error-handling
+    rules:
+      # G101 flags identifiers containing "token" or "key". Here they name
+      # environment variables, not credentials.
+      - linters:
+          - gosec
+        text: "G101"
+      # Test code fabricates fixtures and reads local files by design.
+      - path: _test\.go
+        linters:
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
