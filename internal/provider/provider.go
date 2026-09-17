@@ -67,7 +67,8 @@ func (p *AnthropicProvider) Schema(ctx context.Context, req provider.SchemaReque
 			"base_url": schema.StringAttribute{
 				Optional: true,
 				Description: "Origin of the Anthropic API, used by every request including the federation token exchange. " +
-					"Defaults to `https://api.anthropic.com`; https only. Override it only to point tests at a local server. " +
+					"Defaults to `https://api.anthropic.com`; https only. Override it only to point tests at a local server; " +
+					"any other value is reported as a warning naming the host. " +
 					"Can also be set via the ANTHROPIC_BASE_URL environment variable.",
 			},
 			"admin_api_key": schema.StringAttribute{

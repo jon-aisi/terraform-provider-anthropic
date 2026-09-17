@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -115,8 +116,8 @@ func TestFederationExchangesIdentityTokenForBearer(t *testing.T) {
 
 	resp := configureProviderWith(t, api, federationAttrs(tokenFile))
 	pd := providerDataFrom(t, resp)
-	if resp.Diagnostics.WarningsCount() != 0 {
-		t.Errorf("unexpected warnings: %v", resp.Diagnostics)
+	if got := warningSummaries(resp); !slices.Equal(got, []string{"Non-default API Destination"}) {
+		t.Errorf("warnings = %v, want only the one about the test server's base URL", got)
 	}
 	if pd.AdminClient != nil {
 		t.Error("AdminClient should be nil without admin_api_key")
@@ -398,8 +399,8 @@ func TestAuthTokenTakesPrecedenceOverFederation(t *testing.T) {
 	resp := configureProviderWith(t, api, attrs)
 	pd := providerDataFrom(t, resp)
 
-	if resp.Diagnostics.WarningsCount() != 1 {
-		t.Errorf("warnings = %d, want 1 announcing the ignored federation settings: %v", resp.Diagnostics.WarningsCount(), resp.Diagnostics)
+	if got := warningSummaries(resp); !slices.Contains(got, "Workload Identity Federation Settings Ignored") {
+		t.Errorf("warnings = %v, want one announcing the ignored federation settings", got)
 	}
 
 	if err := pd.OAuthClient.Get(context.Background(), "/v1/models", nil, nil); err != nil {
@@ -412,6 +413,15 @@ func TestAuthTokenTakesPrecedenceOverFederation(t *testing.T) {
 	if got := apiCalls[0].Get("Authorization"); got != "Bearer sk-ant-oat01-static" {
 		t.Errorf("authorization = %q, want the static bearer", got)
 	}
+}
+
+// warningSummaries lists the warning summaries in resp, in order.
+func warningSummaries(resp *provider.ConfigureResponse) []string {
+	var out []string
+	for _, w := range resp.Diagnostics.Warnings() {
+		out = append(out, w.Summary())
+	}
+	return out
 }
 
 // diagnosticsText flattens every diagnostic for substring assertions.

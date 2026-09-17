@@ -14,14 +14,67 @@ import (
 )
 
 func TestBaseURLDefaultsToProduction(t *testing.T) {
-	clearCredentialEnv(t)
+	tests := []struct {
+		name  string
+		attrs map[string]tftypes.Value
+	}{
+		{"unset", map[string]tftypes.Value{"admin_api_key": str("sk-ant-admin03-x")}},
+		{"the default spelled out", map[string]tftypes.Value{"admin_api_key": str("sk-ant-admin03-x"), "base_url": str(defaultBaseURL + "/")}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearCredentialEnv(t)
 
-	pd := providerDataFrom(t, configureProvider(t, map[string]tftypes.Value{
-		"admin_api_key": str("sk-ant-admin03-x"),
-	}))
+			resp := configureProvider(t, tc.attrs)
+			pd := providerDataFrom(t, resp)
 
-	if pd.AdminClient.BaseURL != defaultBaseURL {
-		t.Errorf("admin client base URL = %q, want %q", pd.AdminClient.BaseURL, defaultBaseURL)
+			if pd.AdminClient.BaseURL != defaultBaseURL {
+				t.Errorf("admin client base URL = %q, want %q", pd.AdminClient.BaseURL, defaultBaseURL)
+			}
+			if resp.Diagnostics.WarningsCount() != 0 {
+				t.Errorf("the production origin must not be warned about: %v", resp.Diagnostics)
+			}
+		})
+	}
+}
+
+// TestBaseURLWarnsWhenNotTheDefault: the destination of every credential can
+// be set from the environment alone, so anything but the production origin
+// is announced with its host and where the value came from.
+func TestBaseURLWarnsWhenNotTheDefault(t *testing.T) {
+	tests := []struct {
+		name, config, env, wantHost, wantSource string
+	}{
+		{"from config", "https://mock.example.test:8443/", "", "mock.example.test:8443", "base_url provider argument"},
+		{"from environment", "", "https://env.example.test", "env.example.test", envBaseURL + " environment variable"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearCredentialEnv(t)
+			if tc.env != "" {
+				t.Setenv(envBaseURL, tc.env)
+			}
+			attrs := map[string]tftypes.Value{"admin_api_key": str("sk-ant-admin03-x")}
+			if tc.config != "" {
+				attrs["base_url"] = str(tc.config)
+			}
+
+			resp := configureProvider(t, attrs)
+			providerDataFrom(t, resp)
+
+			warnings := resp.Diagnostics.Warnings()
+			if len(warnings) != 1 {
+				t.Fatalf("warnings = %d, want 1: %v", len(warnings), resp.Diagnostics)
+			}
+			if got := warnings[0].Summary(); got != "Non-default API Destination" {
+				t.Errorf("summary = %q, want Non-default API Destination", got)
+			}
+			for _, want := range []string{tc.wantHost, tc.wantSource, defaultBaseURL} {
+				if !strings.Contains(warnings[0].Detail(), want) {
+					t.Errorf("detail %q does not mention %q", warnings[0].Detail(), want)
+				}
+			}
+		})
 	}
 }
 

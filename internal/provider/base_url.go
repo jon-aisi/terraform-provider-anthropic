@@ -24,6 +24,10 @@ const (
 // http:// scheme would ship them to the wrong place in clear text. Only https
 // is accepted, with no query or fragment; a trailing slash is dropped so path
 // concatenation in the admin client does not produce "//".
+//
+// Anything but the production origin is reported as a warning naming the host
+// and where the value came from: the environment alone can set it, with
+// nothing in the configuration to show every credential is going elsewhere.
 func resolveBaseURL(configValue types.String, diags *diag.Diagnostics) string {
 	const summary = "Invalid Base URL"
 
@@ -32,8 +36,14 @@ func resolveBaseURL(configValue types.String, diags *diag.Diagnostics) string {
 		return defaultBaseURL
 	}
 
+	fromConfig := !configValue.IsNull() && !configValue.IsUnknown()
+	source := "the " + envBaseURL + " environment variable"
+	if fromConfig {
+		source = "the base_url provider argument"
+	}
+
 	addError := func(detail string) {
-		if !configValue.IsNull() && !configValue.IsUnknown() {
+		if fromConfig {
 			diags.AddAttributeError(path.Root("base_url"), summary, detail)
 			return
 		}
@@ -57,5 +67,18 @@ func resolveBaseURL(configValue types.String, diags *diag.Diagnostics) string {
 		return ""
 	}
 
-	return strings.TrimRight(raw, "/")
+	resolved := strings.TrimRight(raw, "/")
+	if !strings.EqualFold(resolved, defaultBaseURL) {
+		const warning = "Non-default API Destination"
+		detail := fmt.Sprintf("Every request, credentials included, goes to %s (set by %s) instead of %s. "+
+			"base_url exists to point tests at a local server; check this is intended.",
+			u.Host, source, defaultBaseURL)
+		if fromConfig {
+			diags.AddAttributeWarning(path.Root("base_url"), warning, detail)
+		} else {
+			diags.AddWarning(warning, detail)
+		}
+	}
+
+	return resolved
 }
