@@ -1,0 +1,22 @@
+# Dependency update PRs, reviewed and merged by hand: nothing is automerged.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    vendor: true
+    groups:
+      go-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: gomod
+    directory: /tools
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]

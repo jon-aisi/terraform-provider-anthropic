@@ -3,7 +3,9 @@
 version: 2
 before:
   hooks:
-    - go mod tidy
+    # Dependencies are vendored; verify go.sum against the module cache
+    # instead of tidying, which could desynchronise go.mod from vendor/.
+    - go mod verify
 builds:
 - env:
     # goreleaser does not work with CGO, it could also complicate
@@ -53,6 +55,10 @@ signs:
       - "${signature}"
       - "--detach-sign"
       - "${artifact}"
+# Syft must be on PATH (anchore/sbom-action/download-syft in the release
+# workflow). One SPDX SBOM per archive, published with the release.
+sboms:
+  - artifacts: archive
 release:
   extra_files:
     - glob: 'terraform-registry-manifest.json'
