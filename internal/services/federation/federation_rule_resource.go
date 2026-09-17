@@ -243,6 +243,7 @@ func (r *FederationRuleResource) Schema(_ context.Context, _ resource.SchemaRequ
 				Computed:            true,
 				ElementType:         types.StringType,
 				MarkdownDescription: "Tagged IDs of the workspaces this rule is enabled for. May be empty for older rules that only carry the legacy `workspace_id` binding.",
+				PlanModifiers:       []planmodifier.List{workspaceIDsUseStateUnlessBindingChanges{}},
 			},
 			"created_at": schema.StringAttribute{
 				Computed:            true,
@@ -256,6 +257,7 @@ func (r *FederationRuleResource) Schema(_ context.Context, _ resource.SchemaRequ
 			"archived_at": schema.StringAttribute{
 				Computed:            true,
 				MarkdownDescription: "Archive timestamp (RFC 3339). Null if the rule has not been archived.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"created_by_actor_id": schema.StringAttribute{
 				Computed:            true,
@@ -269,9 +271,59 @@ func (r *FederationRuleResource) Schema(_ context.Context, _ resource.SchemaRequ
 			"archived_by_actor_id": schema.StringAttribute{
 				Computed:            true,
 				MarkdownDescription: "Tagged ID (`user_`/`svac_`) of the actor that archived this rule. Null if the rule has not been archived.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 		},
 	}
+}
+
+// --- Plan modifiers ---
+
+// workspaceIDsUseStateUnlessBindingChanges keeps the prior workspace_ids in
+// the plan when neither workspace_id nor applies_to_all_workspaces changes,
+// so a description or lifetime edit does not plan the list as unknown.
+//
+// It is not a plain UseStateForUnknown on purpose. Terraform rejects an apply
+// whose result differs from a known planned value, and workspace_ids does
+// change when the binding changes: the API returns the new list and the
+// carried-forward one would fail that check. The same reasoning is why
+// issuer_name (changes when the issuer is renamed in the same apply) and
+// updated_at / updated_by_actor_id (change on every update) stay unknown.
+type workspaceIDsUseStateUnlessBindingChanges struct{}
+
+func (m workspaceIDsUseStateUnlessBindingChanges) Description(_ context.Context) string {
+	return "Keeps the prior workspace_ids unless workspace_id or applies_to_all_workspaces changes."
+}
+
+func (m workspaceIDsUseStateUnlessBindingChanges) MarkdownDescription(ctx context.Context) string {
+	return m.Description(ctx)
+}
+
+func (m workspaceIDsUseStateUnlessBindingChanges) PlanModifyList(ctx context.Context, req planmodifier.ListRequest, resp *planmodifier.ListResponse) {
+	// Create: no prior value to carry forward.
+	if req.State.Raw.IsNull() {
+		return
+	}
+	if !req.PlanValue.IsUnknown() || req.StateValue.IsUnknown() {
+		return
+	}
+
+	var planWorkspaceID, stateWorkspaceID types.String
+	var planAll, stateAll types.Bool
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("workspace_id"), &planWorkspaceID)...)
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("workspace_id"), &stateWorkspaceID)...)
+	resp.Diagnostics.Append(req.Plan.GetAttribute(ctx, path.Root("applies_to_all_workspaces"), &planAll)...)
+	resp.Diagnostics.Append(req.State.GetAttribute(ctx, path.Root("applies_to_all_workspaces"), &stateAll)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// An unknown binding may still change; leave the list unknown too.
+	if !planWorkspaceID.Equal(stateWorkspaceID) || !planAll.Equal(stateAll) {
+		return
+	}
+
+	resp.PlanValue = req.StateValue
 }
 
 // --- ConfigValidators ---
