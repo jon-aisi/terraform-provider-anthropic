@@ -224,8 +224,15 @@ added without a decision.
 | `github.com/hashicorp/terraform-plugin-testing` | v1.16.0 | Acceptance tests only (`TestAcc*`), but a direct requirement, so vendored with its transitive tree (`hc-install`, `terraform-exec`, `terraform-json`, `terraform-plugin-sdk/v2`). |
 
 Indirect requirements are listed in `go.mod`; the framework transport brings
-`go-plugin`, `grpc`, `protobuf`, `yamux`. `go mod verify` is clean and CI
-re-vendors and diffs on every run. The `tools` module
+`go-plugin`, `grpc`, `protobuf`, `yamux`. Three of them are pinned above
+upstream because `govulncheck` flagged upstream's versions as reachable from
+this code (GO-2026-6443, -6348, -6061 in `grpc`; GO-2026-5970 in `x/text`;
+GO-2026-5026 in `x/net`): `google.golang.org/grpc` v1.79.3 -> v1.83.2,
+`golang.org/x/net` v0.52.0 -> v0.56.0, `golang.org/x/text` v0.36.0 -> v0.41.0,
+with `x/crypto`, `x/mod`, `x/sync`, `x/sys`, `x/tools` and `genproto/googleapis/rpc`
+following. `govulncheck ./...` reports no vulnerabilities at this commit; the
+CI job fails on any new one. `go mod verify` is clean and CI re-vendors and
+diffs on every run. The `tools` module
 (`terraform-plugin-docs` v0.25.0) is not vendored; the docs job downloads it
 through `proxy.golang.org`, verified against `tools/go.sum`.
 

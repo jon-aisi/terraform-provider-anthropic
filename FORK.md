@@ -44,6 +44,10 @@ stored Anthropic credential. Upstream is MPL-2.0; so is this fork (`LICENSE`).
 - `internal/provider/base_url.go`: one validated `base_url` for both clients.
 - Tests for both, `vendor/`, the CI/release changes, `hack/trim-upstream.sh`,
   `FORK.md`, `REVIEW.md`.
+- Indirect dependency bumps past `govulncheck` findings (`grpc`, `x/net`,
+  `x/text` and their `x/*` cascade; see `REVIEW.md`). Upstream's `go.mod`
+  will conflict on these lines at every rebase until upstream catches up:
+  keep the higher version, then `go mod tidy && go mod vendor`.
 
 Edits to files shared with upstream are kept to registration lines and the
 credential surface: `internal/provider/provider.go`,
