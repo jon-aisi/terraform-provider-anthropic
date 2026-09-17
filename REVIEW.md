@@ -6,31 +6,35 @@ re-derived after a rebase. `vendor/` is excluded from every count.
 
 ## What remains
 
-Go, excluding `vendor/`: 17,070 lines (7,264 non-test, 9,806 test); 245 test
+Go, excluding `vendor/`: 18,852 lines (7,843 non-test, 11,009 test); 284 test
 functions, of which 19 are acceptance tests (`TestAcc*`, run only with
-`TF_ACC=1` and live credentials). Upstream `main` had 30,440 lines and 353
-test functions.
+`TF_ACC=1`, live credentials, and `ANTHROPIC_TEST_ORGANIZATION_ID` naming the
+organisation the credential belongs to). Upstream `main` had 30,440 lines and
+353 test functions. Counts are as of the last commit under "Findings
+addressed".
 
 | Package | Non-test | Test | Role |
 |---|---:|---:|---|
-| `main.go` | 40 | 0 | Serves the provider at `registry.terraform.io/ippontech/anthropic`. |
+| `main.go` | 40 | 0 | Serves the provider at `terraform.aisi.org.uk/aisi/anthropic`, a filesystem-mirror address (`docs/guides/install.md`). |
 | `internal/provider` | 643 | 1,450 | Schema, credential resolution, client construction. `provider.go` (upstream, edited); `federation.go`, `base_url.go` and `httpclient.go` (fork). |
 | `internal/providerdata` | 34 | 0 | Struct handed to every resource: `AdminClient` (Admin API key) and `OAuthClient` (bearer). |
 | `internal/admin` | 338 | 861 | Hand-rolled HTTP client for `/v1/organizations/workspaces*` with retries. Used only by `workspaces`. |
 | `internal/errors` | 105 | 323 | Nil-client guards that turn a missing credential into a diagnostic; `Detail` caps the response body an SDK error prints. |
 | `internal/tfvalue` | 32 | 28 | `""`/zero-time to null helpers. |
-| `internal/services/federation` | 3,565 | 4,507 | `anthropic_federation_issuer`, `_rule`, `_rule_workspace` resources; `federation_issuer(s)`, `federation_rule(s)`, `federation_rule_workspaces` data sources. SDK client. |
-| `internal/services/serviceaccounts` | 1,311 | 2,113 | `anthropic_service_account`, `_service_account_workspace` resources; `service_account(s)`, `service_account_workspaces` data sources. SDK client. |
-| `internal/services/workspaces` | 946 | 524 | `anthropic_workspace` resource; `workspace`, `workspaces` data sources. Admin client. `workspacetest.go` is test scaffolding compiled into the package (auth/transport review finding 7); it moves to a `_test.go` file on the resources branch, `aisi/fix-resources`, not here. |
-| `internal/acctest` | 47 | 0 | Acceptance-test provider factory and env pre-checks. `TerraformTestsWorkspaceID` is upstream's own workspace ID (see flags). |
+| `internal/services/federation` | 3,888 | 5,399 | `anthropic_federation_issuer`, `_rule`, `_rule_workspace` resources; `federation_issuer(s)`, `federation_rule(s)`, `federation_rule_workspaces` data sources. SDK client. Issuer and rule carry `ModifyPlan` warnings for in-place trust and grant changes and warn in `Read` when archived out of band. |
+| `internal/services/serviceaccounts` | 1,338 | 2,350 | `anthropic_service_account`, `_service_account_workspace` resources; `service_account(s)`, `service_account_workspaces` data sources. SDK client. The workspace role changes in place through the Add upsert. |
+| `internal/services/workspaces` | 876 | 598 | `anthropic_workspace` resource; `workspace`, `workspaces` data sources. Admin client. `workspacetest_test.go` holds the shared test scaffolding; nothing under `net/http/httptest` links into the binary (`go list -deps . \| grep -c httptest` is 0). |
+| `internal/acctest` | 346 | 0 | Acceptance-test provider factory, pre-checks with the organisation guard (`ANTHROPIC_TEST_ORGANIZATION_ID` must equal what `GET /v1/organizations/me` returns for the credential), `ANTHROPIC_TEST_WORKSPACE_ID`, `tf-acc-*` random names, a per-run RSA JWK, and the sweepers behind `make sweep`. Test-only; not linked into the binary. |
 | `internal/admintest` | 23 | 0 | Builds an `admin.Client` against an httptest server. |
 | `internal/wifprobetest` | 167 | 0 | Harness for the opt-in read-after-write staleness probe (`TestAccWIFStalenessProbe`, live writes; needs `TF_ACC=1`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_WIF_STALENESS_PROBE=1`). |
 | `tools` | 13 | 0 | Separate module: `tfplugindocs` for `go generate`. Not vendored. |
 
-Non-Go: 17 doc pages under `docs/` (generated from `templates/`), 19 example
+Non-Go: 18 doc pages under `docs/` (16 resource and data source pages, the
+WIF guide and the install guide, generated from `templates/`), the example
 modules under `examples/`, 17 Terraform native tests under `tests/` (15 offline
 via `mock_provider` or plan-only with dummy credentials; the two workspace data
-source tests read the live API and are excluded from CI), `hack/trim-upstream.sh`.
+source tests read the live API and are excluded from CI),
+`hack/trim-upstream.sh` and its manifest `hack/upstream-manifest.txt`.
 
 ## Network calls
 
@@ -151,31 +155,36 @@ adds `anthropic-version` and the beta header each endpoint needs.
 
 | File | Calls |
 |---|---|
-| `federation/federation_issuer_resource.go` | `Federation.Issuers.New` (397), `Get` (420), `Update` (485), `Archive` (511) |
+| `federation/federation_issuer_resource.go` | `Federation.Issuers.New` (446), `Get` (469), `Update` (539), `Archive` (565) |
 | `federation/federation_issuer_data_source.go` | `Issuers.Get` (218) |
 | `federation/federation_issuers_data_source.go` | `Issuers.ListAutoPaging` (243) |
-| `federation/federation_rule_resource.go` | `Rules.New` (448), `Get` (471, 530), `Update` (643), `Archive` (670) |
+| `federation/federation_rule_resource.go` | `Rules.New` (614), `Get` (637, 702), `Update` (751), `Archive` (778) |
 | `federation/federation_rule_data_source.go` | `Rules.Get` (237) |
 | `federation/federation_rules_data_source.go` | `Rules.ListAutoPaging` (275) |
 | `federation/federation_rule_workspace_resource.go` | `Rules.Workspaces.Add` (148), `Remove` (236), `ListAutoPaging` (310) |
 | `federation/federation_rule_workspaces_data_source.go` | `Rules.Workspaces.ListAutoPaging` (135) |
-| `serviceaccounts/service_account_resource.go` | `ServiceAccounts.New` (191), `Get` (214, 271), `Update` (316), `Archive` (341) |
+| `serviceaccounts/service_account_resource.go` | `ServiceAccounts.New` (191), `Get` (214, 282), `Update` (327), `Archive` (352) |
 | `serviceaccounts/service_account_data_source.go` | `ServiceAccounts.Get` (130) |
 | `serviceaccounts/service_accounts_data_source.go` | `ServiceAccounts.ListAutoPaging` (161) |
-| `serviceaccounts/service_account_workspace_resource.go` | `ServiceAccounts.Workspaces.Add` (248), `Remove` (257), `ListAutoPaging` (276) |
+| `serviceaccounts/service_account_workspace_resource.go` | `ServiceAccounts.Workspaces.Add` (264, from Create and from Update), `Remove` (273), `ListAutoPaging` (292) |
 | `serviceaccounts/service_account_workspaces_data_source.go` | `ServiceAccounts.Workspaces.ListAutoPaging` (126) |
 
-The second `Get` in `federation_rule_resource.go` (530) and
-`service_account_resource.go` (271), and the list in
+The second `Get` in `federation_rule_resource.go` (702) and
+`service_account_resource.go` (282), and the list in
 `federation_rule_workspace_resource.go` (310), are read-after-write
-consistency waits: bounded polling with `time.After(interval)` (lines 555,
-296, 299) that logs a warning and gives up at the timeout.
+consistency waits: bounded polling with `time.After(interval)` (lines 727,
+307, 299) that logs a warning and gives up at the timeout.
 
 ### Anything else
 
 - `internal/wifprobetest/probe.go:158` builds an SDK client from
   `ANTHROPIC_AUTH_TOKEN` directly. Test harness only; not reachable from the
   provider binary.
+- `internal/acctest/acctest.go` (test-only, not reachable from the binary)
+  calls `GET /v1/organizations/me` through the SDK (208) and the admin
+  client (223) for the organisation guard, and lists and archives
+  `tf-acc-*` rules, issuers and service accounts in the sweepers (294-341),
+  behind the same guard.
 - Tests use `httptest.NewTLSServer` throughout; no test contacts the network
   except the `TestAcc*` functions.
 - The SDK's `warnOnce` (`internal/auth/logging.go`) writes to the standard
@@ -209,8 +218,8 @@ closure (file path, or the inline token). Nothing is written to disk.
 ### Logged
 
 The provider never logs a credential. `rg -n 'tflog\.' internal --glob '!*_test.go'`
-gives five `tflog.Warn` calls (`federation_rule_resource.go:537,545`,
-`federation_rule_workspace_resource.go:168`, `service_account_resource.go:278,286`)
+gives five `tflog.Warn` calls (`federation_rule_resource.go:709,717`,
+`federation_rule_workspace_resource.go:168`, `service_account_resource.go:289,297`)
 whose fields are object IDs, a timeout and `err.Error()`. The SDK `warnOnce`
 lines above carry error text, never a token. Not verified: what
 `TF_LOG=TRACE` makes the framework and go-plugin log about the provider
@@ -252,8 +261,8 @@ added without a decision.
   STATUS text (Request-ID: ...) <raw JSON response body>`; `errors.Detail(err)`
   returns the same text with the body capped at 512 bytes
   (`admin.MaxErrorBodyBytes`, `admin.TruncateBody`) and is what those sites
-  should pass instead of `err`; adopting it changes `internal/services` and
-  belongs to the resources branch. For the admin client, `APIError` is
+  should pass instead of `err`; the services do not call it yet. For the
+  admin client, `APIError` is
   `API error (STATUS type): message`, where `message` is the API's
   `error.message`, or the raw body when it is not JSON, either capped at 512
   bytes when the error is built; a 3xx reads `refused to follow the redirect
@@ -264,6 +273,18 @@ added without a decision.
   redacted by the SDK, plus a hint on 401.
 - A 404 on read removes the object from state (six sites:
   `rg -n 'StatusCode == 404|IsNotFound\(' internal/services --glob '!*_test.go'`).
+- An object the API returns as archived stays in state and `Read` adds a
+  warning naming it and the archive time (rule, issuer, service account:
+  `rg -n 'archived outside Terraform' internal/services --glob '!*_test.go'`).
+  Removing it would plan a re-create, which for a rule re-grants access.
+- `ModifyPlan` on the issuer warns when `issuer_url` or `jwks` changes in
+  place; on the rule when `match`, `target.service_account_id`,
+  `oauth_scope`, `workspace_id` or `applies_to_all_workspaces` does. Unknown
+  planned values do not warn.
+- A rule update that changes `workspace_id` while `workspace_ids` lists
+  other enablements is refused with an error before any request; an
+  unchanged `workspace_id` is not sent; a cleared one is sent as `null`.
+- `attributes = {}` and `match.claims = {}` are config errors.
 
 ## Dependencies (`go.mod`, direct)
 
@@ -290,21 +311,25 @@ diffs on every run. The `tools` module
 (`terraform-plugin-docs` v0.25.0) is not vendored; the docs job downloads it
 through `proxy.golang.org`, verified against `tools/go.sum`. `govulncheck`
 cannot analyse it (its only file is build-tagged and imports a `main`
-package), so its dependency tree is not vulnerability-scanned in CI.
+package), so its dependency tree is not vulnerability-scanned in CI; its
+`x/text` and `x/crypto` were moved to the main module's versions by hand
+(`x/mod` and `x/sys` followed).
 
 ## Diff vs upstream
 
 `git diff --stat upstream/main...HEAD -- . ':!vendor'`:
-289 files changed, 2,051 insertions, 23,382 deletions. The insertions are
-`internal/provider/{federation,base_url}.go` and their tests (~800 lines),
-the CI and release changes (~300), `hack/trim-upstream.sh`, this file,
+355 files changed, 5,608 insertions, 23,684 deletions. The insertions are
+`internal/provider/{federation,base_url,httpclient}.go` and their tests
+(~1,350 lines), the CI and release changes (~350), the resource fixes under
+"Findings addressed" and their tests (~1,700), `internal/acctest` (~350),
+`hack/trim-upstream.sh` with its manifest, the install guide, this file,
 `FORK.md`, `go.sum` for the bumped modules, and the docs regenerated from the
 templates.
 
 Commits, in order: trim; federation auth (and `api_key` removal); `base_url`;
 vendoring and CI; review docs; vendored files the inherited `.gitignore`
-dropped; dependency bumps past govulncheck findings; then the transport fixes
-listed under Findings addressed.
+dropped; dependency bumps past govulncheck findings; then the transport and
+resource fixes listed under "Findings addressed".
 
 ## Flags for the human review
 
@@ -314,7 +339,7 @@ known defect.
 1. **Response bodies in diagnostics.** Capped at 512 bytes in the admin
    client's `APIError`; `errors.Detail` applies the same cap to SDK errors
    but the services still pass `err` directly (see Errors), so that half
-   lands with the resources branch.
+   is still open.
 2. **Server-driven POST replay.** `admin.shouldRetry` replays a create when
    the server answers `x-should-retry: true`, whatever the status. A hostile
    or buggy endpoint could induce duplicate workspaces. Only the admin client;
@@ -331,13 +356,18 @@ known defect.
    CI job refreshing the token before each command (the recommendation) and
    names `check_jti = false` on the bootstrap issuer as the alternative. An
    inline `identity_token` has no refresh path at all.
-5. **Provider address unchanged.** `main.go` serves
-   `registry.terraform.io/ippontech/anthropic` and examples pin that source.
-   Publishing under another namespace or mirror needs that string changed,
-   together with `examples/**/versions.tf` and `tests/versions.tf`.
-6. **Upstream workspace ID.** `acctest.TerraformTestsWorkspaceID` is Ippon's
-   test workspace; the two live workspace data source tests reference it and
-   will fail against another organisation.
+5. **Provider address.** Now `terraform.aisi.org.uk/aisi/anthropic` in
+   `main.go`, `tests/versions.tf`, every `examples/**/versions.tf` under
+   `resources/` and `data-sources/`, and the guides. `docs/index.md` and
+   `examples/provider/provider.tf` still show the upstream address. The
+   fork's versions carry a prerelease suffix, which Terraform matches only
+   with an exact constraint; the install guide says so.
+6. **Test organisation.** The acceptance tests refuse to run unless
+   `ANTHROPIC_TEST_ORGANIZATION_ID` equals the organisation
+   `GET /v1/organizations/me` reports for the credential, and read the
+   workspace from `ANTHROPIC_TEST_WORKSPACE_ID`. Not yet run live: whether
+   that endpoint accepts the OAuth bearer (SDK `Beta.Organization.Get`) and
+   the Admin API key, and whether the API accepts the generated JWK.
 7. **Consistency waits.** Three bounded polling loops after writes (Network
    calls). Check the timeouts and intervals are acceptable for CI
    (`rg -n 'interval|timeout' internal/services/*/*_resource.go`).
@@ -349,8 +379,10 @@ known defect.
    `fail-open.prod.semgrep.dev`), `bridgecrewio/checkov-action` (pypi,
    bridgecrew.cloud), `anchore/sbom-action`, `goreleaser/goreleaser-action`.
    `hashicorp/setup-terraform` reaches `checkpoint-api.hashicorp.com`.
-   The CodeQL and release jobs run harden-runner in `audit` rather than
-   `block` mode.
+   The CodeQL job runs harden-runner in `audit` mode. The release job
+   blocks with an allowlist that was derived from the steps, not observed:
+   run the workflow once on a throwaway tag in `audit` mode and reconcile the
+   list before the first real release.
 9. **`terraform-plugin-testing` in the production dependency graph.** A
    direct requirement because Go has no test-only scope, so its transitive
    tree is vendored and scanned even though only `TestAcc*` uses it. The
@@ -364,15 +396,38 @@ known defect.
 
 ## Findings addressed
 
-From the auth and transport review of `a691c88` (findings by its numbering),
-on branch `aisi/fix-transport`:
+Two reviews of `a691c88` were fixed on separate branches, `aisi/fix-transport`
+(auth and transport, `REVIEW-auth-transport.md`) and `aisi/fix-resources`
+(resources and supply chain, `REVIEW-resources-supply-chain.md`), then
+combined here by cherry-picking the resource commits onto the transport
+commits. Findings are numbered as in each review. Unit tests and
+`golangci-lint` pass at the head of this branch; `go mod vendor` and `make
+generate` are no-ops. The acceptance tests were not run: no test organisation
+credential was available, so the last column lists what a first run has to
+confirm.
 
-| Finding | Commit | Change |
-|---|---|---|
-| 1 redirects followed, 4 no SDK timeout | `bc342f5` | One `http.Client` for the admin client, the SDK and the token exchange: redirects refused, 60 s timeout, 30 s response-header timeout, TLS 1.2 minimum. |
-| 2 retried creates | `d211322` | `option.WithMaxRetries(0)` on the SDK client. |
-| 3 `jti` re-exchange | `eb84e05` | Documented; the CI example refreshes the token before each Terraform command. |
-| 5 destination set silently | `3332ab5` | `Non-default API Destination` warning. |
-| 6 raw bodies in diagnostics | `c7fb7f2` | 512-byte cap in `admin.APIError`; `errors.Detail` for SDK errors, for the services to adopt. |
-| 7 test scaffolding in the binary | none here | `workspacetest.go` moves on `aisi/fix-resources`. |
-| 8 info items | `0ab8cec` | Token file read at Configure; warning for a base URL path with federation; `TF_LOG_SDK_PROTO_DATA_DIR` note. |
+| Review | Finding | Commit | Change | Live check still needed |
+|---|---|---|---|---|
+| Transport | 1 redirects followed, 4 no SDK timeout | `bc342f5` | One `http.Client` for the admin client, the SDK and the token exchange: redirects refused, 60 s timeout, 30 s response-header timeout, TLS 1.2 minimum. | — |
+| Transport | 2 retried creates | `d211322` | `option.WithMaxRetries(0)` on the SDK client. | — |
+| Transport | 3 `jti` re-exchange | `eb84e05` | Documented; the CI example refreshes the token before each Terraform command. | — |
+| Transport | 5 destination set silently | `3332ab5` | `Non-default API Destination` warning. | — |
+| Transport | 6 raw bodies in diagnostics | `c7fb7f2` | 512-byte cap in `admin.APIError`; `errors.Detail` for SDK errors, for the services to adopt. | — |
+| Transport | 7 test scaffolding in the binary (the resources review's unnumbered last item) | `994d38d` | `workspacetest.go` moved to `workspacetest_test.go`; `go list -deps . \| grep -c httptest` is 0. | — |
+| Transport | 8 info items | `0ab8cec` | Token file read at Configure; warning for a base URL path with federation; `TF_LOG_SDK_PROTO_DATA_DIR` note. | — |
+| Resources | 1 Release never verifies `vendor/` | `1390df0` | The release job re-vendors and diffs `vendor/`, then builds and runs the tests before GoReleaser. | Create the `v*` tag ruleset in the organisation repository (RELEASE.md). |
+| Resources | 2 Out-of-band archive invisible | `9b8a775` | `Read` warns when a rule, issuer or service account is archived outside Terraform; state is kept. | — |
+| Resources | 3 Rule Update always resends `workspace_id` | `e3e7b28` | `workspace_id` is sent on a rule update only when it changes. | Update of a rule with enablements succeeds without `workspace_id`. |
+| Resources | 4 Trust-root changes in place | `faff892` | `ModifyPlan` warns when an issuer's trust or a rule's grant changes in place. | — |
+| Resources | 5 Rebase can smuggle code past the trim | `25b8601` | `hack/trim-upstream.sh` fails on anything not in `hack/upstream-manifest.txt`. | — |
+| Resources | 6 Release job in `audit` mode | `b0b8f48` | harden-runner in `block` mode with an egress allowlist. | One audit-mode run on a throwaway tag to reconcile the allowlist. |
+| Resources | 7 Provider address | `9548d2e` | `terraform.aisi.org.uk/aisi/anthropic` in `main.go`, `tests/versions.tf`, `examples/**/versions.tf` and the guides; `docs/guides/install.md` added. | `docs/index.md` and `examples/provider/provider.tf` still show the upstream address. |
+| Resources | 8 Acceptance tests write to any organisation | `503906d` | Organisation guard, `tf-acc-*` random names and sweepers in `internal/acctest`. | `GET /v1/organizations/me` with a bearer and with an Admin API key; the API accepts the generated JWK. |
+| Resources | 9 `applies_to_all_workspaces` false to true keeps `workspace_id` | `e3e7b28` | A cleared `workspace_id` is sent as `null`. | `"workspace_id": null` with `"applies_to_all_workspaces": true` is accepted and clears the binding. |
+| Resources | 10 `service_account_workspace` role change replaces | `d86661a` | The workspace role changes in place through the Add upsert. | Add on an existing membership returns 200 with the new role. |
+| Resources | 11 Rule Update replaces `match` wholesale | — | Not changed: an unmodelled server-side match field would be dropped. | Check the SDK's `BetaFederationRuleMatchParam` against the schema on every SDK bump. |
+| Resources | 12 `golangci-lint-action` unpinned, no config | `81e8755` | golangci-lint pinned (`mise.toml`, `provider.yml`); `.golangci.yml` added. | — |
+| Resources | 13 `tools/go.sum` below the main module | `d10ddea` | `tools/go.mod` `x/text` and `x/crypto` moved past the main module's versions. | — |
+| Resources | 14 `UseStateForUnknown` | `8af4733` | Applied to `archived_*`; `workspace_ids` conditional on an unchanged binding; `updated_*` and `issuer_name` left unknown, since a carried-forward value fails Terraform's inconsistent-result check when they change. | — |
+| Resources | 15 Empty `attributes` / `match.claims` | `9868848` | `attributes = {}` and `match.claims = {}` are config errors at plan time. | — |
+| Resources | 16 SA `organization_role` developer to admin is a `~` line | — | Not changed; the API refuses it from a workload token. | — |
