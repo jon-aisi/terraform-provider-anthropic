@@ -220,7 +220,18 @@ func resolveCredential(configValue types.String, envVar string) string {
 // client in effect when it is applied and performs the token exchange with
 // it, so option.WithHTTPClient has to precede it.
 func (p *AnthropicProvider) newSDKClient(baseURL string, credential option.RequestOption) *anthropic.Client {
-	opts := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithBaseURL(baseURL)}
+	opts := []option.RequestOption{
+		option.WithoutEnvironmentDefaults(),
+		option.WithBaseURL(baseURL),
+		// The SDK would otherwise replay any request, POST included, on a
+		// connection error, 408, 409, 429 or 5xx. Issuers.New, Rules.New,
+		// ServiceAccounts.New and Workspaces.Add are POSTs; a replay after the
+		// first attempt's write committed creates a second issuer, rule or
+		// service account that no state file tracks, and an untracked issuer
+		// is an untracked trust anchor into the organisation. The admin client
+		// keeps its own 429-only POST retry for the same reason.
+		option.WithMaxRetries(0),
+	}
 	if p.httpClient != nil {
 		opts = append(opts, option.WithHTTPClient(p.httpClient))
 	}

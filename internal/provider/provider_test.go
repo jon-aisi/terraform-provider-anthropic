@@ -5,14 +5,18 @@ package provider
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
+	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -384,5 +388,46 @@ func TestResolveCredential(t *testing.T) {
 				t.Errorf("resolveCredential() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestSDKClientDoesNotRetry pins option.WithMaxRetries(0): every SDK create
+// is a POST, and a replay after a committed write leaves an untracked issuer,
+// rule or service account behind. The statuses are the ones the SDK would
+// otherwise retry.
+func TestSDKClientDoesNotRetry(t *testing.T) {
+	for _, status := range []int{http.StatusInternalServerError, http.StatusTooManyRequests, http.StatusConflict} {
+		for _, method := range []string{http.MethodPost, http.MethodGet} {
+			t.Run(fmt.Sprintf("%d %s", status, method), func(t *testing.T) {
+				var calls atomic.Int32
+				srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(status)
+					_, _ = w.Write([]byte(`{"type":"error","error":{"type":"api_error","message":"boom"}}`))
+				}))
+				t.Cleanup(srv.Close)
+
+				clearCredentialEnv(t)
+				pd := providerDataFrom(t, configureProviderWith(t, srv.Client(), map[string]tftypes.Value{
+					"base_url":   str(srv.URL),
+					"auth_token": str("sk-ant-oat01-x"),
+				}))
+
+				var err error
+				if method == http.MethodPost {
+					err = pd.OAuthClient.Post(context.Background(), "/v1/organizations/federation/issuers", map[string]any{"name": "x"}, nil)
+				} else {
+					err = pd.OAuthClient.Get(context.Background(), "/v1/organizations/federation/issuers", nil, nil)
+				}
+				var apiErr *anthropic.Error
+				if !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+					t.Fatalf("err = %v, want an *anthropic.Error with status %d", err, status)
+				}
+				if got := calls.Load(); got != 1 {
+					t.Errorf("requests = %d, want 1 (no retry)", got)
+				}
+			})
+		}
 	}
 }
