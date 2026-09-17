@@ -76,6 +76,10 @@ Required only for `anthropic_workspace` and the `anthropic_workspace` / `anthrop
 export ANTHROPIC_ADMIN_API_KEY="sk-ant-admin03-..."
 ```
 
+### Base URL (`base_url` / `ANTHROPIC_BASE_URL`)
+
+Every request, including the federation token exchange, goes to `https://api.anthropic.com`. `base_url` exists so tests can point the provider at a local server; it must be an `https://` origin with no query string or fragment, and both the Admin API client and the SDK client use it. Do not set it in production configurations.
+
 Profiles under `~/.config/anthropic` are ignored: each client is built from the credential resolved above and nothing else, so a profile left active by `ant auth login` can never redirect a request to another base URL or scope it to another workspace behind your back.
 
 ~> **Warning**: Never hardcode API keys in your Terraform configuration files.
@@ -105,6 +109,7 @@ provider "anthropic" {}
 
 - `admin_api_key` (String, Sensitive) The Anthropic Admin API key. Used only by the `anthropic_workspace` resource and data sources; the Workload Identity Federation endpoints reject it. Can also be set via the ANTHROPIC_ADMIN_API_KEY environment variable.
 - `auth_token` (String, Sensitive) An org:admin OAuth bearer token (`sk-ant-oat01-...`) for the Workload Identity Federation admin endpoints. Takes precedence over workload identity federation when both are configured. Can also be set via the ANTHROPIC_AUTH_TOKEN environment variable.
+- `base_url` (String) Origin of the Anthropic API, used by every request including the federation token exchange. Defaults to `https://api.anthropic.com`; https only. Override it only to point tests at a local server. Can also be set via the ANTHROPIC_BASE_URL environment variable.
 - `federation_rule_id` (String) The federation rule (`fdrl_...`) that governs the exchange. Required with an identity token. Can also be set via the ANTHROPIC_FEDERATION_RULE_ID environment variable.
 - `identity_token` (String, Sensitive) An OIDC identity token (JWT) exchanged for an org:admin access token through workload identity federation. Prefer `identity_token_file`: the token is re-exchanged when the access token expires, and a JWT carrying a single-use `jti` is accepted only once. Can also be set via the ANTHROPIC_IDENTITY_TOKEN environment variable.
 - `identity_token_file` (String) Path to a file holding the OIDC identity token. Re-read before every exchange, so a rotated token is picked up. Mutually exclusive with `identity_token`. Can also be set via the ANTHROPIC_IDENTITY_TOKEN_FILE environment variable.

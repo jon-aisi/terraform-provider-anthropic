@@ -76,6 +76,10 @@ Required only for `anthropic_workspace` and the `anthropic_workspace` / `anthrop
 export ANTHROPIC_ADMIN_API_KEY="sk-ant-admin03-..."
 ```
 
+### Base URL (`base_url` / `ANTHROPIC_BASE_URL`)
+
+Every request, including the federation token exchange, goes to `https://api.anthropic.com`. `base_url` exists so tests can point the provider at a local server; it must be an `https://` origin with no query string or fragment, and both the Admin API client and the SDK client use it. Do not set it in production configurations.
+
 Profiles under `~/.config/anthropic` are ignored: each client is built from the credential resolved above and nothing else, so a profile left active by `ant auth login` can never redirect a request to another base URL or scope it to another workspace behind your back.
 
 ~> **Warning**: Never hardcode API keys in your Terraform configuration files.

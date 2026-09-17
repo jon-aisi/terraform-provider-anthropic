@@ -315,6 +315,7 @@ func TestSchemaMarksCredentialsSensitive(t *testing.T) {
 	(&AnthropicProvider{}).Schema(context.Background(), provider.SchemaRequest{}, resp)
 
 	want := map[string]bool{
+		"base_url":            false,
 		"admin_api_key":       true,
 		"auth_token":          true,
 		"identity_token":      true,

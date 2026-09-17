@@ -40,6 +40,7 @@ type AnthropicProvider struct {
 
 // AnthropicProviderModel describes the provider data model.
 type AnthropicProviderModel struct {
+	BaseURL           types.String `tfsdk:"base_url"`
 	AdminApiKey       types.String `tfsdk:"admin_api_key"`
 	AuthToken         types.String `tfsdk:"auth_token"`
 	IdentityToken     types.String `tfsdk:"identity_token"`
@@ -63,6 +64,12 @@ func (p *AnthropicProvider) Schema(ctx context.Context, req provider.SchemaReque
 			"(`identity_token_file` with `federation_rule_id` and `organization_id`). " +
 			"An Admin API key (`admin_api_key`) is **not accepted** by the federation endpoints; it is only used by `anthropic_workspace`.",
 		Attributes: map[string]schema.Attribute{
+			"base_url": schema.StringAttribute{
+				Optional: true,
+				Description: "Origin of the Anthropic API, used by every request including the federation token exchange. " +
+					"Defaults to `https://api.anthropic.com`; https only. Override it only to point tests at a local server. " +
+					"Can also be set via the ANTHROPIC_BASE_URL environment variable.",
+			},
 			"admin_api_key": schema.StringAttribute{
 				Optional:  true,
 				Sensitive: true,
@@ -124,6 +131,11 @@ func (p *AnthropicProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
+	baseURL := resolveBaseURL(data.BaseURL, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	adminApiKey := resolveCredential(data.AdminApiKey, "ANTHROPIC_ADMIN_API_KEY")
 	authToken := resolveCredential(data.AuthToken, "ANTHROPIC_AUTH_TOKEN")
 	fed := resolveFederation(data)
@@ -144,6 +156,7 @@ func (p *AnthropicProvider) Configure(ctx context.Context, req provider.Configur
 	pd := &providerdata.ProviderData{}
 	if adminApiKey != "" {
 		pd.AdminClient = admin.NewClient(adminApiKey)
+		pd.AdminClient.BaseURL = baseURL
 		if p.httpClient != nil {
 			pd.AdminClient.HTTPClient = p.httpClient
 		}
@@ -158,13 +171,13 @@ func (p *AnthropicProvider) Configure(ctx context.Context, req provider.Configur
 					"IDs are not used. Unset one of them to make the choice explicit.",
 			)
 		}
-		pd.OAuthClient = &providerdata.OAuthClient{Client: p.newSDKClient(option.WithAuthToken(authToken))}
+		pd.OAuthClient = &providerdata.OAuthClient{Client: p.newSDKClient(baseURL, option.WithAuthToken(authToken))}
 	case fed.configured():
 		fed.validate(&resp.Diagnostics)
 		if resp.Diagnostics.HasError() {
 			return
 		}
-		pd.OAuthClient = &providerdata.OAuthClient{Client: p.newSDKClient(fed.requestOption())}
+		pd.OAuthClient = &providerdata.OAuthClient{Client: p.newSDKClient(baseURL, fed.requestOption())}
 	}
 
 	resp.DataSourceData = pd
@@ -200,19 +213,14 @@ func resolveCredential(configValue types.String, envVar string) string {
 // configuration. Federation is therefore resolved by the provider itself
 // (see federation.go) rather than left to the SDK's env chain.
 //
-// The only environment variable still honoured is ANTHROPIC_BASE_URL, which
-// the marker option also skips. It is read with an explicit emptiness check:
-// an exported-but-empty value must not replace the SDK's production default
-// with "".
+// The marker option also skips ANTHROPIC_BASE_URL, so the base URL resolved
+// by resolveBaseURL is passed explicitly.
 //
 // The credential option goes last: the federation option captures the HTTP
 // client in effect when it is applied and performs the token exchange with
 // it, so option.WithHTTPClient has to precede it.
-func (p *AnthropicProvider) newSDKClient(credential option.RequestOption) *anthropic.Client {
-	opts := []option.RequestOption{option.WithoutEnvironmentDefaults()}
-	if baseURL := os.Getenv("ANTHROPIC_BASE_URL"); baseURL != "" {
-		opts = append(opts, option.WithBaseURL(baseURL))
-	}
+func (p *AnthropicProvider) newSDKClient(baseURL string, credential option.RequestOption) *anthropic.Client {
+	opts := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithBaseURL(baseURL)}
 	if p.httpClient != nil {
 		opts = append(opts, option.WithHTTPClient(p.httpClient))
 	}
