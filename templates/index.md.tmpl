@@ -31,23 +31,35 @@ The provider exchanges the workload's own OIDC identity token for an `org:admin`
 These are the variables the Anthropic SDKs read for their own federation auto-discovery, so a workload configured for the SDK configures the provider too. None of the IDs is a secret. On GitHub Actions (with `permissions: id-token: write` on the job):
 
 ```yaml
-- name: Request the GitHub OIDC token
-  run: |
-    curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-      "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://api.anthropic.com" \
-      | jq -r .value > /tmp/anthropic-identity-token
+env:
+  ANTHROPIC_IDENTITY_TOKEN_FILE: /tmp/anthropic-identity-token
+  ANTHROPIC_FEDERATION_RULE_ID: fdrl_...
+  ANTHROPIC_ORGANIZATION_ID: 00000000-0000-0000-0000-000000000000
+  ANTHROPIC_SERVICE_ACCOUNT_ID: svac_...
 
-- run: terraform plan
-  env:
-    ANTHROPIC_IDENTITY_TOKEN_FILE: /tmp/anthropic-identity-token
-    ANTHROPIC_FEDERATION_RULE_ID: fdrl_...
-    ANTHROPIC_ORGANIZATION_ID: 00000000-0000-0000-0000-000000000000
-    ANTHROPIC_SERVICE_ACCOUNT_ID: svac_...
+steps:
+  - name: Request the GitHub OIDC token
+    run: |
+      curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+        "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://api.anthropic.com" \
+        | jq -r .value > "$ANTHROPIC_IDENTITY_TOKEN_FILE"
+
+  - run: terraform plan -out=tfplan
+
+  # apply is a second provider process and exchanges the token again; a
+  # token carrying a single-use jti is accepted once (see the note below).
+  - name: Request a fresh GitHub OIDC token
+    run: |
+      curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+        "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://api.anthropic.com" \
+        | jq -r .value > "$ANTHROPIC_IDENTITY_TOKEN_FILE"
+
+  - run: terraform apply tfplan
 ```
 
 Which rule to point at, and why creating it is a one-time Console step, is covered in the [Workload Identity Federation guide](guides/workload_identity_federation).
 
-~> **Note**: GitHub and most OIDC issuers put a single-use `jti` in the token, and the file holds one token. The provider can re-exchange it only if the issuer does not enforce `check_jti`; otherwise the access token must outlive the Terraform run. Set the rule's `token_lifetime_seconds` accordingly, or mint a fresh identity token into the file before each Terraform command.
+~> **Note**: Every Terraform command (`plan`, `apply`, `import`, ...) starts a fresh provider process, and each process exchanges the identity token before its first request. GitHub and most OIDC issuers put a single-use `jti` in the token, and a federation issuer enforces it by default (`check_jti = true`), so a second exchange of the same token is refused: `plan` then `apply` on one token fails at the apply. Either write a fresh token to the file before every Terraform command, as the example does, or set `check_jti = false` on the bootstrap issuer and accept that the token can be replayed for its lifetime. Refreshing is the recommendation. Within one process the access token is cached and re-exchanged only as it nears expiry, presenting whatever the file holds at that moment, so a rule `token_lifetime_seconds` at least as long as the longest apply avoids a mid-run re-exchange of a spent token.
 
 ### Static bearer token (`auth_token` / `ANTHROPIC_AUTH_TOKEN`)
 
