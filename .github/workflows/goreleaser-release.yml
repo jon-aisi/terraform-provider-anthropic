@@ -16,14 +16,40 @@ jobs:
       id-token: write      # sign the provenance attestation (Sigstore)
       attestations: write  # store the attestation on the repository
     steps:
-      # Audit rather than block: the attestation step talks to Sigstore
-      # (fulcio, rekor, tuf-repo-cdn) and GitHub's attestation API, and a
-      # release cannot be re-run cheaply to fix an incomplete allowlist. The
-      # audit log in the step-security dashboard lists every endpoint.
+      # Block mode: this job holds GPG_PRIVATE_KEY and contents: write. The
+      # allowlist is derived from what each step needs, not yet from a run:
+      #   github.com, api.github.com, uploads.github.com
+      #     checkout; GoReleaser creates the release and uploads assets;
+      #     attest-build-provenance stores the attestation.
+      #   objects.githubusercontent.com, release-assets.githubusercontent.com
+      #     action tarballs and GitHub release binaries (GoReleaser, syft).
+      #   storage.googleapis.com
+      #     setup-go downloads the toolchain named in go.mod.
+      #   proxy.golang.org, sum.golang.org
+      #     the vendor check re-downloads modules into the empty module cache;
+      #     the build itself uses vendor/ and makes no request.
+      #   fulcio.sigstore.dev, rekor.sigstore.dev, tuf-repo-cdn.sigstore.dev
+      #     attest-build-provenance (Sigstore keyless signing).
+      # Before the first real release, run this workflow once on a throwaway
+      # tag with `egress-policy: audit`, compare the step-security log with
+      # this list, and fix the list. An endpoint missing here fails the
+      # release; it does not leak anything.
       - name: Harden runner
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
-          egress-policy: audit
+          egress-policy: block
+          allowed-endpoints: >
+            api.github.com:443
+            fulcio.sigstore.dev:443
+            github.com:443
+            objects.githubusercontent.com:443
+            proxy.golang.org:443
+            rekor.sigstore.dev:443
+            release-assets.githubusercontent.com:443
+            storage.googleapis.com:443
+            sum.golang.org:443
+            tuf-repo-cdn.sigstore.dev:443
+            uploads.github.com:443
 
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
