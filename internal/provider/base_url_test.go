@@ -122,7 +122,7 @@ func TestBaseURLIsUsedByBothClients(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	clearCredentialEnv(t)
-	pd := providerDataFrom(t, configureProviderWith(t, srv.Client(), map[string]tftypes.Value{
+	pd := providerDataFrom(t, configureProviderWith(t, srv, map[string]tftypes.Value{
 		"base_url":      str(srv.URL + "/"),
 		"admin_api_key": str("sk-ant-admin03-x"),
 		"auth_token":    str("sk-ant-oat01-x"),

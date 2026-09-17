@@ -551,7 +551,9 @@ func TestAdminClient_doRequest_setsGetBodySoNetHTTPCanRewind(t *testing.T) {
 
 func TestAdminClient_doRequest_followsA307WithTheBodyIntact(t *testing.T) {
 	// net/http only follows a 307/308 when it can rewind the body; without
-	// GetBody the redirect surfaces as an APIError(307) instead.
+	// GetBody the redirect surfaces as an APIError(307) instead. The client
+	// the provider builds never follows one (see the refused-redirect test
+	// above); srv.Client() here is the stock client, to exercise GetBody.
 	var bodies []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -753,9 +755,40 @@ func TestIsIdempotent(t *testing.T) {
 // --- NewClient ---
 
 func TestNewClient_enablesRetriesByDefault(t *testing.T) {
-	c := NewClient("key")
+	hc := &http.Client{}
+	c := NewClient("key", hc)
 	if c.MaxRetries != DefaultMaxRetries {
 		t.Errorf("MaxRetries = %d, want %d", c.MaxRetries, DefaultMaxRetries)
+	}
+	if c.HTTPClient != hc {
+		t.Error("HTTPClient is not the one passed in")
+	}
+}
+
+func TestAdminClient_doRequest_reportsARefusedRedirect(t *testing.T) {
+	const elsewhere = "https://elsewhere.example/v1/organizations/workspaces"
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Redirect(w, r, elsewhere, http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+
+	// The client the provider builds returns a 3xx instead of following it.
+	c := newTestAdminClient(t, srv)
+	c.HTTPClient = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	c.MaxRetries = 2
+
+	_, err := c.DoRequest(context.Background(), "POST", "/v1/organizations/workspaces", map[string]string{"name": "x"})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusTemporaryRedirect {
+		t.Fatalf("err = %v, want an APIError with status 307", err)
+	}
+	if want := `refused to follow the redirect to "` + elsewhere + `"`; !strings.Contains(err.Error(), want) {
+		t.Errorf("err = %q, want it to contain %q", err, want)
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1: a redirect is not retried", calls)
 	}
 }
 

@@ -5,6 +5,7 @@ package provider
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
@@ -59,20 +60,48 @@ func clearCredentialEnv(t *testing.T) {
 }
 
 // configureProvider runs Configure against a config holding attrs, with every
-// other provider attribute null, using the default HTTP client.
+// other provider attribute null, using the production HTTP client.
 func configureProvider(t *testing.T, attrs map[string]tftypes.Value) *provider.ConfigureResponse {
 	t.Helper()
-	return configureProviderWith(t, nil, attrs)
+	return configureProviderSettings(t, httpClientSettings{}, attrs)
 }
 
-// configureProviderWith is configureProvider with the HTTP client every
-// built client should use; tests pass an httptest TLS server's client so the
-// self-signed certificate is trusted.
-func configureProviderWith(t *testing.T, hc *http.Client, attrs map[string]tftypes.Value) *provider.ConfigureResponse {
+// tlsServer is an httptest TLS server whose certificate a test must trust;
+// *httptest.Server and the wrappers embedding it satisfy it.
+type tlsServer interface {
+	Certificate() *x509.Certificate
+}
+
+// trust returns production client settings that also accept the servers'
+// self-signed certificates.
+func trust(t *testing.T, servers ...tlsServer) httpClientSettings {
+	t.Helper()
+	pool := x509.NewCertPool()
+	for _, srv := range servers {
+		cert := srv.Certificate()
+		if cert == nil {
+			t.Fatal("server is not serving TLS")
+		}
+		pool.AddCert(cert)
+	}
+	return httpClientSettings{rootCAs: pool}
+}
+
+// configureProviderWith is configureProvider trusting srv's certificate, so
+// the production client — redirects refused, timeouts set — is what the
+// test exercises.
+func configureProviderWith(t *testing.T, srv tlsServer, attrs map[string]tftypes.Value) *provider.ConfigureResponse {
+	t.Helper()
+	return configureProviderSettings(t, trust(t, srv), attrs)
+}
+
+// configureProviderSettings is configureProvider with explicit HTTP client
+// settings.
+func configureProviderSettings(t *testing.T, settings httpClientSettings, attrs map[string]tftypes.Value) *provider.ConfigureResponse {
 	t.Helper()
 
 	ctx := context.Background()
-	p := &AnthropicProvider{version: "test", httpClient: hc}
+	p := &AnthropicProvider{version: "test", httpClientSettings: settings}
 
 	schemaResp := &provider.SchemaResponse{}
 	p.Schema(ctx, provider.SchemaRequest{}, schemaResp)
@@ -242,7 +271,7 @@ func TestConfigureOAuthClientCarriesOnlyTheBearer(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-api03-env")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "sk-ant-oat01-env")
 
-	pd := providerDataFrom(t, configureProviderWith(t, srv.Client(), nil))
+	pd := providerDataFrom(t, configureProviderWith(t, srv, nil))
 
 	if err := pd.OAuthClient.Get(context.Background(), "/v1/models", nil, nil); err != nil {
 		t.Fatalf("request failed: %v", err)
@@ -277,7 +306,7 @@ func TestConfigureIgnoresTheAmbientProfile(t *testing.T) {
 	}`)
 	t.Setenv("ANTHROPIC_BASE_URL", srv.URL)
 
-	pd := providerDataFrom(t, configureProviderWith(t, srv.Client(), map[string]tftypes.Value{
+	pd := providerDataFrom(t, configureProviderWith(t, srv, map[string]tftypes.Value{
 		"auth_token": str("sk-ant-oat01-config"),
 	}))
 
@@ -409,7 +438,7 @@ func TestSDKClientDoesNotRetry(t *testing.T) {
 				t.Cleanup(srv.Close)
 
 				clearCredentialEnv(t)
-				pd := providerDataFrom(t, configureProviderWith(t, srv.Client(), map[string]tftypes.Value{
+				pd := providerDataFrom(t, configureProviderWith(t, srv, map[string]tftypes.Value{
 					"base_url":   str(srv.URL),
 					"auth_token": str("sk-ant-oat01-x"),
 				}))

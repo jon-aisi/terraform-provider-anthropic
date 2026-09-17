@@ -32,10 +32,10 @@ type AnthropicProvider struct {
 	// testing.
 	version string
 
-	// httpClient, when set, is used by every client the provider builds.
-	// Tests set it to an httptest TLS server's client; production leaves it
-	// nil and each client uses its own default.
-	httpClient *http.Client
+	// httpClientSettings adjusts the client every request leaves through (see
+	// newHTTPClient). Tests use it to trust an httptest server's certificate
+	// and to shorten the timeouts; production leaves the zero value.
+	httpClientSettings httpClientSettings
 }
 
 // AnthropicProviderModel describes the provider data model.
@@ -152,14 +152,13 @@ func (p *AnthropicProvider) Configure(ctx context.Context, req provider.Configur
 	}
 
 	// Each client carries exactly the credential resolved above and nothing
-	// the environment contributed on its own — see newSDKClient.
+	// the environment contributed on its own — see newSDKClient. All of them
+	// share one HTTP client, which refuses redirects and bounds every request.
+	httpClient := newHTTPClient(p.httpClientSettings)
 	pd := &providerdata.ProviderData{}
 	if adminApiKey != "" {
-		pd.AdminClient = admin.NewClient(adminApiKey)
+		pd.AdminClient = admin.NewClient(adminApiKey, httpClient)
 		pd.AdminClient.BaseURL = baseURL
-		if p.httpClient != nil {
-			pd.AdminClient.HTTPClient = p.httpClient
-		}
 	}
 
 	switch {
@@ -171,13 +170,13 @@ func (p *AnthropicProvider) Configure(ctx context.Context, req provider.Configur
 					"IDs are not used. Unset one of them to make the choice explicit.",
 			)
 		}
-		pd.OAuthClient = &providerdata.OAuthClient{Client: p.newSDKClient(baseURL, option.WithAuthToken(authToken))}
+		pd.OAuthClient = &providerdata.OAuthClient{Client: newSDKClient(httpClient, baseURL, option.WithAuthToken(authToken))}
 	case fed.configured():
 		fed.validate(&resp.Diagnostics)
 		if resp.Diagnostics.HasError() {
 			return
 		}
-		pd.OAuthClient = &providerdata.OAuthClient{Client: p.newSDKClient(baseURL, fed.requestOption())}
+		pd.OAuthClient = &providerdata.OAuthClient{Client: newSDKClient(httpClient, baseURL, fed.requestOption())}
 	}
 
 	resp.DataSourceData = pd
@@ -218,11 +217,14 @@ func resolveCredential(configValue types.String, envVar string) string {
 //
 // The credential option goes last: the federation option captures the HTTP
 // client in effect when it is applied and performs the token exchange with
-// it, so option.WithHTTPClient has to precede it.
-func (p *AnthropicProvider) newSDKClient(baseURL string, credential option.RequestOption) *anthropic.Client {
+// it, so option.WithHTTPClient has to precede it. option.WithMiddleware
+// precedes it too, so refuseRedirect wraps the authenticated request.
+func newSDKClient(httpClient *http.Client, baseURL string, credential option.RequestOption) *anthropic.Client {
 	opts := []option.RequestOption{
 		option.WithoutEnvironmentDefaults(),
 		option.WithBaseURL(baseURL),
+		option.WithHTTPClient(httpClient),
+		option.WithMiddleware(refuseRedirect),
 		// The SDK would otherwise replay any request, POST included, on a
 		// connection error, 408, 409, 429 or 5xx. Issuers.New, Rules.New,
 		// ServiceAccounts.New and Workspaces.Add are POSTs; a replay after the
@@ -231,11 +233,8 @@ func (p *AnthropicProvider) newSDKClient(baseURL string, credential option.Reque
 		// is an untracked trust anchor into the organisation. The admin client
 		// keeps its own 429-only POST retry for the same reason.
 		option.WithMaxRetries(0),
+		credential,
 	}
-	if p.httpClient != nil {
-		opts = append(opts, option.WithHTTPClient(p.httpClient))
-	}
-	opts = append(opts, credential)
 
 	client := anthropic.NewClient(opts...)
 

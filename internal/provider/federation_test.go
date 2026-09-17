@@ -113,7 +113,7 @@ func TestFederationExchangesIdentityTokenForBearer(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", api.URL)
 	tokenFile := writeIdentityToken(t, "jwt-A")
 
-	resp := configureProviderWith(t, api.Client(), federationAttrs(tokenFile))
+	resp := configureProviderWith(t, api, federationAttrs(tokenFile))
 	pd := providerDataFrom(t, resp)
 	if resp.Diagnostics.WarningsCount() != 0 {
 		t.Errorf("unexpected warnings: %v", resp.Diagnostics)
@@ -183,7 +183,7 @@ func TestFederationRereadsTheTokenFileOnEveryExchange(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", api.URL)
 	tokenFile := writeIdentityToken(t, "jwt-A")
 
-	pd := providerDataFrom(t, configureProviderWith(t, api.Client(), federationAttrs(tokenFile)))
+	pd := providerDataFrom(t, configureProviderWith(t, api, federationAttrs(tokenFile)))
 
 	if err := pd.OAuthClient.Get(context.Background(), "/v1/models", nil, nil); err != nil {
 		t.Fatalf("first request failed: %v", err)
@@ -212,7 +212,7 @@ func TestFederationInlineIdentityToken(t *testing.T) {
 	clearCredentialEnv(t)
 	t.Setenv("ANTHROPIC_BASE_URL", api.URL)
 
-	pd := providerDataFrom(t, configureProviderWith(t, api.Client(), map[string]tftypes.Value{
+	pd := providerDataFrom(t, configureProviderWith(t, api, map[string]tftypes.Value{
 		"identity_token":     str("jwt-inline"),
 		"federation_rule_id": str(testRuleID),
 		"organization_id":    str(testOrgID),
@@ -242,7 +242,7 @@ func TestFederationFromEnvironment(t *testing.T) {
 	t.Setenv(envServiceAccountID, testServiceAcct)
 	t.Setenv(envWorkspaceID, "default")
 
-	pd := providerDataFrom(t, configureProviderWith(t, api.Client(), nil))
+	pd := providerDataFrom(t, configureProviderWith(t, api, nil))
 
 	if err := pd.OAuthClient.Get(context.Background(), "/v1/models", nil, nil); err != nil {
 		t.Fatalf("request failed: %v", err)
@@ -267,7 +267,7 @@ func TestFederationConfigOverridesEnvironment(t *testing.T) {
 	t.Setenv(envFederationRuleID, "fdrl_FROMENV")
 	t.Setenv(envOrganizationID, testOrgID)
 
-	pd := providerDataFrom(t, configureProviderWith(t, api.Client(), map[string]tftypes.Value{
+	pd := providerDataFrom(t, configureProviderWith(t, api, map[string]tftypes.Value{
 		"identity_token_file": str(writeIdentityToken(t, "jwt-config")),
 		"federation_rule_id":  str(testRuleID),
 	}))
@@ -395,7 +395,7 @@ func TestAuthTokenTakesPrecedenceOverFederation(t *testing.T) {
 
 	attrs := federationAttrs(writeIdentityToken(t, "jwt-A"))
 	attrs["auth_token"] = str("sk-ant-oat01-static")
-	resp := configureProviderWith(t, api.Client(), attrs)
+	resp := configureProviderWith(t, api, attrs)
 	pd := providerDataFrom(t, resp)
 
 	if resp.Diagnostics.WarningsCount() != 1 {

@@ -47,8 +47,11 @@ const (
 // replays only on 429 — see shouldRetry. Retries are opt-in: the zero value
 // performs a single attempt, and NewClient enables DefaultMaxRetries.
 type Client struct {
-	ApiKey     string
-	BaseURL    string
+	ApiKey  string
+	BaseURL string
+	// HTTPClient performs every request. The provider supplies one that
+	// refuses redirects and bounds each request; this package has no default
+	// of its own.
 	HTTPClient *http.Client
 
 	// MaxRetries is the number of retries attempted after the initial request.
@@ -82,11 +85,11 @@ func IsNotFound(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.StatusCode == 404
 }
 
-func NewClient(apiKey string) *Client {
+func NewClient(apiKey string, httpClient *http.Client) *Client {
 	return &Client{
 		ApiKey:     apiKey,
 		BaseURL:    adminAPIBaseURL,
-		HTTPClient: &http.Client{Timeout: 60 * time.Second},
+		HTTPClient: httpClient,
 		MaxRetries: DefaultMaxRetries,
 	}
 }
@@ -166,6 +169,15 @@ func (c *Client) attempt(template *http.Request, reqBody []byte) ([]byte, *http.
 		return nil, nil, fmt.Errorf("read response body: %w", err)
 	}
 
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		// The provider's HTTP client hands a 3xx back instead of following
+		// it (internal/provider newHTTPClient); name the destination rather
+		// than echoing the redirect page.
+		return nil, resp, &APIError{
+			StatusCode: resp.StatusCode,
+			Message:    fmt.Sprintf("refused to follow the redirect to %q", resp.Header.Get("Location")),
+		}
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, resp, newAPIError(resp.StatusCode, respBody)
 	}
