@@ -7,7 +7,7 @@ description: |-
 # Anthropic Provider
 
 The Anthropic provider is used to interact with [Anthropic](https://anthropic.com) APIs.
-It allows you to manage and query Anthropic resources such as models.
+This build manages the [Workload Identity Federation](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation) subset of the Admin API: federation issuers, service accounts, federation rules, their workspace bindings, and workspaces.
 
 ## Authentication
 
@@ -15,7 +15,7 @@ The provider accepts three distinct credentials, depending on which resources yo
 
 ### API Key (`api_key` / `ANTHROPIC_API_KEY`)
 
-Required for all inference resources: `anthropic_message`, `anthropic_agent`, `anthropic_skill`, models, token counting, etc.
+Not required by any resource or data source in this build.
 
 Generate one in the [Anthropic Console → API Keys](https://platform.claude.com/settings/keys).
 
@@ -35,7 +35,7 @@ provider "anthropic" {
 
 ### Admin API Key (`admin_api_key` / `ANTHROPIC_ADMIN_API_KEY`)
 
-Required for organization-management resources: `anthropic_workspace`, workspace members, and workspace rate limits. This is a separate credential scoped to your whole organization rather than a single workspace.
+Required for `anthropic_workspace` and the `anthropic_workspace` / `anthropic_workspaces` data sources. This is a separate credential scoped to your whole organization rather than a single workspace.
 
 Generate one in the [Anthropic Console → Admin API Keys](https://platform.claude.com/settings/admin-keys).
 
@@ -86,12 +86,6 @@ Profiles under `~/.config/anthropic` are ignored for the same reason: each clien
 
 ~> **Warning**: Never hardcode API keys in your Terraform configuration files.
 Use environment variables or a secrets manager instead.
-
-## Cost considerations
-
-~> **Warning**: Some resources call billable Anthropic APIs at `terraform apply` time and can generate unbounded variable cost. `anthropic_message` consumes tokens on every apply, and Managed Agents / Skills (created via `anthropic_agent`, `anthropic_environment`, `anthropic_skill`, `anthropic_skill_version`) are free to manage but billable when invoked at runtime. Combining these with `count`/`for_each` over a large input set, or omitting `max_tokens`, can produce a single apply that costs significantly more than expected.
-
-Each per-resource doc page lists its cost profile in an **API / Auth / Beta header / Cost** header block. Review it before scaling apply-time inference across many instances, and prefer setting an explicit `max_tokens` on every `anthropic_message`.
 
 ## Example Usage
 

@@ -152,8 +152,12 @@ terraform {
 }
 
 provider "anthropic" {
-  # One block carries both credentials: ANTHROPIC_AUTH_TOKEN (section 1) for
-  # the WIF resources, ANTHROPIC_ADMIN_API_KEY for data.anthropic_organization.
+  # Reads ANTHROPIC_AUTH_TOKEN (section 1).
+}
+
+# Console, Settings -> Organization. Not a secret.
+variable "organization_id" {
+  type = string
 }
 
 variable "production_workspace_id" {
@@ -263,13 +267,11 @@ output "service_account_id" {
 
 output "organization_id" {
   description = "Value of ANTHROPIC_ORGANIZATION_ID in the workload."
-  value       = data.anthropic_organization.current.id
+  value       = var.organization_id
 }
-
-data "anthropic_organization" "current" {}
 ```
 
-`data.anthropic_organization` is an Admin API call, so the provider block above also needs the Admin API key (`admin_api_key` / `ANTHROPIC_ADMIN_API_KEY`); the three credentials are independent and one `provider` block can carry all of them. If you do not want a second credential in this configuration, drop the data source and pass the organization ID (Console, **Settings → Organization**) as a variable. The token exchange ignores workspace membership for `org:admin` rules only; for the workspace-scoped rule above, both the membership and the rule enablement must exist.
+The token exchange ignores workspace membership for `org:admin` rules only; for the workspace-scoped rule above, both the membership and the rule enablement must exist.
 
 ## 4. How the workload consumes the rule
 

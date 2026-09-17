@@ -16,16 +16,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/ippontech/terraform-provider-anthropic/internal/admin"
 	"github.com/ippontech/terraform-provider-anthropic/internal/providerdata"
-	"github.com/ippontech/terraform-provider-anthropic/internal/services/agents"
-	"github.com/ippontech/terraform-provider-anthropic/internal/services/apikeys"
-	"github.com/ippontech/terraform-provider-anthropic/internal/services/environments"
 	"github.com/ippontech/terraform-provider-anthropic/internal/services/federation"
-	"github.com/ippontech/terraform-provider-anthropic/internal/services/messages"
-	"github.com/ippontech/terraform-provider-anthropic/internal/services/models"
-	"github.com/ippontech/terraform-provider-anthropic/internal/services/organizations"
 	"github.com/ippontech/terraform-provider-anthropic/internal/services/serviceaccounts"
-	"github.com/ippontech/terraform-provider-anthropic/internal/services/skills"
-	"github.com/ippontech/terraform-provider-anthropic/internal/services/vaults"
 	"github.com/ippontech/terraform-provider-anthropic/internal/services/workspaces"
 )
 
@@ -161,54 +153,26 @@ func newSDKClient(credential option.RequestOption) *anthropic.Client {
 
 func (p *AnthropicProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		agents.NewAgentResource,
-		apikeys.NewAPIKeyResource,
-		environments.NewEnvironmentResource,
 		federation.NewFederationIssuerResource,
 		federation.NewFederationRuleResource,
 		federation.NewFederationRuleWorkspaceResource,
-		messages.NewMessageResource,
 		serviceaccounts.NewServiceAccountResource,
 		serviceaccounts.NewServiceAccountWorkspaceResource,
-		skills.NewSkillResource,
-		skills.NewSkillVersionResource,
-		vaults.NewVaultResource,
-		vaults.NewVaultCredentialResource,
 		workspaces.NewWorkspaceResource,
-		workspaces.NewWorkspaceMemberResource,
 	}
 }
 
 func (p *AnthropicProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
-		agents.NewAgentDataSource,
-		apikeys.NewAPIKeyDataSource,
-		apikeys.NewAPIKeysDataSource,
-		agents.NewAgentsDataSource,
-		messages.NewCountTokensDataSource,
-		environments.NewEnvironmentDataSource,
-		environments.NewEnvironmentsDataSource,
 		federation.NewFederationIssuersDataSource,
 		federation.NewFederationRulesDataSource,
 		federation.NewFederationIssuerDataSource,
 		federation.NewFederationRuleDataSource,
 		federation.NewFederationRuleWorkspacesDataSource,
-		models.NewModelDataSource,
-		models.NewModelsDataSource,
-		organizations.NewOrganizationDataSource,
-		organizations.NewOrganizationMemberDataSource,
-		organizations.NewOrganizationMembersDataSource,
 		serviceaccounts.NewServiceAccountsDataSource,
 		serviceaccounts.NewServiceAccountDataSource,
 		serviceaccounts.NewServiceAccountWorkspacesDataSource,
-		skills.NewSkillDataSource,
-		skills.NewSkillVersionDataSource,
-		skills.NewSkillVersionsDataSource,
-		skills.NewSkillsDataSource,
 		workspaces.NewWorkspaceDataSource,
-		workspaces.NewWorkspaceMemberDataSource,
-		workspaces.NewWorkspaceMembersDataSource,
-		workspaces.NewWorkspaceRateLimitsDataSource,
 		workspaces.NewWorkspacesDataSource,
 	}
 }
