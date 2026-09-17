@@ -82,3 +82,18 @@ func resolveBaseURL(configValue types.String, diags *diag.Diagnostics) string {
 
 	return resolved
 }
+
+// warnIfExchangeIgnoresPath: the SDK posts the federation token exchange to
+// scheme://host/v1/oauth/token whatever path baseURL carries, and its
+// federation option has no field to change that, while API requests do
+// honour the path. Both destinations are named so the split is visible.
+func warnIfExchangeIgnoresPath(baseURL string, diags *diag.Diagnostics) {
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Path == "" {
+		return
+	}
+	diags.AddWarning("Base URL Path Ignored By The Token Exchange",
+		fmt.Sprintf("API requests go to %s, but the workload identity federation token exchange goes to "+
+			"%s://%s/v1/oauth/token: the SDK does not apply the path. Use a base URL without a path, or a static auth_token.",
+			baseURL, u.Scheme, u.Host))
+}

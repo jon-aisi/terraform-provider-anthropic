@@ -153,9 +153,16 @@ func (c federationConfig) validate(diags *diag.Diagnostics) {
 	}
 
 	if c.identityTokenFile.set() {
-		if _, err := os.Stat(c.identityTokenFile.value); err != nil {
+		// Read it, as the SDK will on every exchange, so a permission problem
+		// or an empty file fails here rather than at the first request.
+		data, err := os.ReadFile(c.identityTokenFile.value)
+		switch {
+		case err != nil:
 			addError(c.identityTokenFile, fmt.Sprintf(
-				"The identity token file from %s is not readable: %s", c.identityTokenFile.source(), err))
+				"The identity token file from %s could not be read: %s", c.identityTokenFile.source(), err))
+		case strings.TrimSpace(string(data)) == "":
+			addError(c.identityTokenFile, fmt.Sprintf(
+				"The identity token file from %s is empty.", c.identityTokenFile.source()))
 		}
 	}
 }

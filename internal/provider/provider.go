@@ -177,6 +177,7 @@ func (p *AnthropicProvider) Configure(ctx context.Context, req provider.Configur
 		if resp.Diagnostics.HasError() {
 			return
 		}
+		warnIfExchangeIgnoresPath(baseURL, &resp.Diagnostics)
 		pd.OAuthClient = &providerdata.OAuthClient{Client: newSDKClient(httpClient, baseURL, fed.requestOption())}
 	}
 

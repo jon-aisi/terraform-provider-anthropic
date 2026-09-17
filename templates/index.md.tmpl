@@ -78,12 +78,18 @@ export ANTHROPIC_ADMIN_API_KEY="sk-ant-admin03-..."
 
 ### Base URL (`base_url` / `ANTHROPIC_BASE_URL`)
 
-Every request, including the federation token exchange, goes to `https://api.anthropic.com`. `base_url` exists so tests can point the provider at a local server; it must be an `https://` origin with no query string or fragment, and both the Admin API client and the SDK client use it. Do not set it in production configurations.
+Every request, including the federation token exchange, goes to `https://api.anthropic.com`. `base_url` exists so tests can point the provider at a local server; it must be an `https://` origin with no query string or fragment, and both the Admin API client and the SDK client use it. Any other value produces a `Non-default API Destination` warning naming the host, whether it came from the argument or from `ANTHROPIC_BASE_URL`. Do not set it in production configurations.
+
+A path prefix (`https://proxy.example/anthropic`) is applied to API requests but not to the token exchange, which the SDK always posts to `<scheme>://<host>/v1/oauth/token`; the provider warns when federation is configured with such a base URL. Redirects are never followed: a `3xx` from the origin fails the request with the destination named, so no credential or identity token travels to a second host. Every request is bounded by a 60-second timeout, 30 seconds of it for the response headers.
 
 Profiles under `~/.config/anthropic` are ignored: each client is built from the credential resolved above and nothing else, so a profile left active by `ant auth login` can never redirect a request to another base URL or scope it to another workspace behind your back.
 
 ~> **Warning**: Never hardcode API keys in your Terraform configuration files.
 Use environment variables or a secrets manager instead.
+
+### Logging
+
+The provider logs no credential at any level. Terraform's `TF_LOG_SDK_PROTO_DATA_DIR` is different: it makes the plugin framework write every raw protocol message, the provider configuration with its `Sensitive` values included, to files in that directory. Never set it in CI or anywhere the directory outlives the run.
 
 ## Example Usage
 

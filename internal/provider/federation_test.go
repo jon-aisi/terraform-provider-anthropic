@@ -376,14 +376,32 @@ func TestFederationRejectsMalformedIDs(t *testing.T) {
 	}
 }
 
-func TestFederationRejectsMissingTokenFile(t *testing.T) {
-	clearCredentialEnv(t)
-	resp := configureProvider(t, federationAttrs(filepath.Join(t.TempDir(), "absent")))
-	if !resp.Diagnostics.HasError() {
-		t.Fatal("expected an error when the identity token file does not exist")
+// TestFederationRejectsAnUnusableTokenFile: Configure reads the file the way
+// the SDK will, so what would fail at the first request fails here instead.
+func TestFederationRejectsAnUnusableTokenFile(t *testing.T) {
+	dir := t.TempDir()
+	empty := filepath.Join(dir, "empty")
+	if err := os.WriteFile(empty, []byte(" \n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if got := diagnosticsText(resp); !strings.Contains(got, "not readable") {
-		t.Errorf("diagnostics %q do not report the unreadable file", got)
+	tests := []struct {
+		name, path, want string
+	}{
+		{"absent", filepath.Join(dir, "absent"), "could not be read"},
+		{"directory", dir, "could not be read"},
+		{"empty", empty, "is empty"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearCredentialEnv(t)
+			resp := configureProvider(t, federationAttrs(tc.path))
+			if !resp.Diagnostics.HasError() {
+				t.Fatalf("expected an error for identity_token_file=%q", tc.path)
+			}
+			if got := diagnosticsText(resp); !strings.Contains(got, tc.want) {
+				t.Errorf("diagnostics %q do not say %q", got, tc.want)
+			}
+		})
 	}
 }
 

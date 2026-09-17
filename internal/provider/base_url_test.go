@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -212,4 +213,55 @@ func pathsOf(m map[string]http.Header) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// TestBaseURLPathWarnsWithFederation: the SDK drops the path from the token
+// exchange URL, so a base URL with a path splits the destinations.
+func TestBaseURLPathWarnsWithFederation(t *testing.T) {
+	const summary = "Base URL Path Ignored By The Token Exchange"
+	tests := []struct {
+		name    string
+		baseURL string
+		static  bool
+		want    bool
+	}{
+		{"federation with a path", "https://proxy.example.test/anthropic/", false, true},
+		{"federation without a path", "https://proxy.example.test", false, false},
+		{"static token with a path", "https://proxy.example.test/anthropic", true, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearCredentialEnv(t)
+			attrs := map[string]tftypes.Value{"base_url": str(tc.baseURL)}
+			if tc.static {
+				attrs["auth_token"] = str("sk-ant-oat01-x")
+			} else {
+				for k, v := range federationAttrs(writeIdentityToken(t, "jwt")) {
+					attrs[k] = v
+				}
+			}
+
+			resp := configureProvider(t, attrs)
+			providerDataFrom(t, resp)
+
+			got := slices.Contains(warningSummaries(resp), summary)
+			if got != tc.want {
+				t.Fatalf("warned = %v, want %v: %v", got, tc.want, resp.Diagnostics)
+			}
+			if !tc.want {
+				return
+			}
+			var detail string
+			for _, w := range resp.Diagnostics.Warnings() {
+				if w.Summary() == summary {
+					detail = w.Detail()
+				}
+			}
+			for _, want := range []string{"https://proxy.example.test/anthropic", "https://proxy.example.test/v1/oauth/token"} {
+				if !strings.Contains(detail, want) {
+					t.Errorf("detail %q does not name %q", detail, want)
+				}
+			}
+		})
+	}
 }
