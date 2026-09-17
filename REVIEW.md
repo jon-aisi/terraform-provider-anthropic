@@ -234,18 +234,22 @@ following. `govulncheck ./...` reports no vulnerabilities at this commit; the
 CI job fails on any new one. `go mod verify` is clean and CI re-vendors and
 diffs on every run. The `tools` module
 (`terraform-plugin-docs` v0.25.0) is not vendored; the docs job downloads it
-through `proxy.golang.org`, verified against `tools/go.sum`.
+through `proxy.golang.org`, verified against `tools/go.sum`. `govulncheck`
+cannot analyse it (its only file is build-tagged and imports a `main`
+package), so its dependency tree is not vulnerability-scanned in CI.
 
 ## Diff vs upstream
 
 `git diff --stat upstream/main...HEAD -- . ':!vendor'`:
-282 files changed, 1,574 insertions, 23,328 deletions. Of the insertions,
-`vendor/` aside: `internal/provider/{federation,base_url}.go` and their tests
-(~800 lines), the CI and release changes (~250), `hack/trim-upstream.sh`,
-this file, `FORK.md`, and the docs regenerated from the templates.
+289 files changed, 2,051 insertions, 23,382 deletions. The insertions are
+`internal/provider/{federation,base_url}.go` and their tests (~800 lines),
+the CI and release changes (~300), `hack/trim-upstream.sh`, this file,
+`FORK.md`, `go.sum` for the bumped modules, and the docs regenerated from the
+templates.
 
 Commits, in order: trim; federation auth (and `api_key` removal); `base_url`;
-vendoring and CI; review docs.
+vendoring and CI; review docs; vendored files the inherited `.gitignore`
+dropped; dependency bumps past govulncheck findings.
 
 ## Flags for the human review
 
