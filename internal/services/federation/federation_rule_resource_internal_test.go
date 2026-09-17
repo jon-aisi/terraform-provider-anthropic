@@ -426,6 +426,45 @@ func TestFederationRuleConfigValidator_MatchUnknownFieldSkipsCheck(t *testing.T)
 	}
 }
 
+func TestFederationRuleConfigValidator_MatchEmptyClaimsIsRejected(t *testing.T) {
+	data := baseValidModel(t)
+	data.Match = matchObject(t, types.StringValue("repo:my-org/*"), types.StringNull(), types.StringNull(), types.MapValueMust(types.StringType, map[string]attr.Value{}))
+
+	resp := validateResource(data)
+	if !resp.HasError() {
+		t.Fatal("expected an error: claims = {} passes no check client-side and fails server-side")
+	}
+	withPath, ok := resp.Errors()[0].(diag.DiagnosticWithPath)
+	if !ok || !withPath.Path().Equal(path.Root("match").AtName("claims")) {
+		t.Errorf("error path = %v, want match.claims", resp.Errors()[0])
+	}
+}
+
+func TestFederationRuleConfigValidator_EmptyAttributesIsRejected(t *testing.T) {
+	data := baseValidModel(t)
+	data.Match = matchObject(t, types.StringValue("repo:my-org/*"), types.StringNull(), types.StringNull(), types.MapNull(types.StringType))
+	data.Attributes = types.MapValueMust(types.StringType, map[string]attr.Value{})
+
+	resp := validateResource(data)
+	if !resp.HasError() {
+		t.Fatal("expected an error: attributes = {} fails server-side")
+	}
+	withPath, ok := resp.Errors()[0].(diag.DiagnosticWithPath)
+	if !ok || !withPath.Path().Equal(path.Root("attributes")) {
+		t.Errorf("error path = %v, want attributes", resp.Errors()[0])
+	}
+}
+
+func TestFederationRuleConfigValidator_UnknownAttributesIsNotRejected(t *testing.T) {
+	data := baseValidModel(t)
+	data.Match = matchObject(t, types.StringValue("repo:my-org/*"), types.StringNull(), types.StringNull(), types.MapNull(types.StringType))
+	data.Attributes = types.MapUnknown(types.StringType)
+
+	if resp := validateResource(data); resp.HasError() {
+		t.Fatalf("an unresolved attributes map must not be flagged yet: %v", resp)
+	}
+}
+
 // --- federationRuleConfigValidator: workspace targeting ---
 
 func TestFederationRuleConfigValidator_WorkspaceTargetingConflict(t *testing.T) {

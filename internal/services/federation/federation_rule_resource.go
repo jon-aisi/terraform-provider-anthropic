@@ -379,6 +379,15 @@ func validateFederationRuleConfig(ctx context.Context, data FederationRuleResour
 			return diags
 		}
 
+		// An empty claims map is not a match condition; the API rejects it.
+		if isSet(match.Claims) && len(match.Claims.Elements()) == 0 {
+			diags.AddAttributeError(
+				path.Root("match").AtName("claims"),
+				"Empty map",
+				"\"match.claims\" must be omitted or contain at least one claim; the API rejects an empty map.",
+			)
+		}
+
 		subjectPrefixUnknown := match.SubjectPrefix.IsUnknown()
 		claimsUnknown := match.Claims.IsUnknown()
 		conditionUnknown := match.Condition.IsUnknown()
@@ -399,6 +408,15 @@ func validateFederationRuleConfig(ctx context.Context, data FederationRuleResour
 				)
 			}
 		}
+	}
+
+	// --- attributes: omitted or non-empty ---
+	if isSet(data.Attributes) && len(data.Attributes.Elements()) == 0 {
+		diags.AddAttributeError(
+			path.Root("attributes"),
+			"Empty map",
+			"\"attributes\" must be omitted or contain at least one entry; the API rejects an empty map.",
+		)
 	}
 
 	// --- exactly one of workspace_id / applies_to_all_workspaces=true ---
