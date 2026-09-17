@@ -12,6 +12,7 @@ Manages a Workload Identity Federation rule. A rule binds a federation issuer to
 > **API**: `POST/GET/POST/POST /v1/organizations/federation_rules[/{id}][/archive]` (no hard-delete endpoint; destroying this resource always archives it).
 > **Auth**: org:admin OAuth bearer token (`auth_token` / `ANTHROPIC_AUTH_TOKEN`). Admin API keys are not accepted.
 > **Scope restriction**: OAuth callers (this provider) may only create or modify rules whose `oauth_scope` is `workspace:developer` or `workspace:inference`. The other two known scopes (`workspace:manage_tunnels`, `org:admin`) require a Console session to create, but a rule using one remains importable and readable through this resource.
+> **Access changes are in place**: `match`, `target`, `oauth_scope`, `workspace_id` and `applies_to_all_workspaces` are updatable, and a change to any of them changes who can mint tokens, what they act as, with which scope, and where, the moment it applies. The plan shows them as `~` lines; the provider adds a warning. Review them as access changes.
 
 ## Example Usage
 

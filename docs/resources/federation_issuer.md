@@ -15,6 +15,7 @@ Registers an OIDC identity provider that Anthropic trusts for Workload Identity 
 > **No hard delete**: destroying this resource always archives the issuer. Archiving is rejected with a 400 while a live federation rule still references the issuer — archive or recreate those rules first. Archiving is idempotent.
 > **One issuer per URL**: an organization can register only one issuer for a given `issuer_url`; creating a second one is rejected by the API. If the Console wizard already registered the provider (for GitHub Actions, `https://token.actions.githubusercontent.com`), import that issuer instead of declaring a new one.
 > **Console-only updates**: updating an issuer that backs a rule with a scope outside `workspace:developer` or `workspace:inference` requires a Console session; an OAuth caller gets an API error.
+> **Trust changes are in place**: `issuer_url` and `jwks` are updatable, and a change to either takes effect for every rule under the issuer the moment it applies. The plan shows them as `~` lines; the provider adds a warning. Review both as access changes, and put `lifecycle { prevent_destroy = true }` on the issuer the bootstrap rule (see the guide) depends on.
 
 ## Deliberate omissions
 

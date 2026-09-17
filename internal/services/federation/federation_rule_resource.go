@@ -37,6 +37,7 @@ import (
 var _ resource.Resource = &FederationRuleResource{}
 var _ resource.ResourceWithImportState = &FederationRuleResource{}
 var _ resource.ResourceWithConfigValidators = &FederationRuleResource{}
+var _ resource.ResourceWithModifyPlan = &FederationRuleResource{}
 
 // The production bounds of awaitFederationRuleUpdateVisible's wait. They are
 // consts, and the function takes them as arguments, so the unit tests can
@@ -371,6 +372,100 @@ func validateFederationRuleConfig(ctx context.Context, data FederationRuleResour
 	}
 
 	return diags
+}
+
+// --- ModifyPlan ---
+
+// ModifyPlan warns when the plan changes who can mint tokens through this
+// rule, what they act as, which scope they get or where they can use it.
+// All of these are updatable in place and otherwise look like any other `~`
+// line in the plan.
+func (r *FederationRuleResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	// Create and destroy do not change the grant of an existing rule.
+	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+		return
+	}
+
+	var plan, state FederationRuleResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(federationRuleAccessChangeWarnings(ctx, plan, state)...)
+}
+
+// federationRuleAccessChangeWarnings is the pure part of ModifyPlan.
+func federationRuleAccessChangeWarnings(ctx context.Context, plan, state FederationRuleResourceModel) diag.Diagnostics {
+	var diags diag.Diagnostics
+	rule := state.Name.ValueString()
+
+	if planChanges(plan.Match, state.Match) {
+		diags.AddAttributeWarning(
+			path.Root("match"),
+			"Rule match changes in place",
+			fmt.Sprintf("The match conditions of federation rule %q change. A different set of identities will be able to mint tokens for its target as soon as this applies. Review it as an access change.", rule),
+		)
+	}
+
+	// target.service_account_name is Computed and unknown whenever target
+	// changes; compare the id the practitioner sets.
+	planTarget, stateTarget := targetServiceAccountID(ctx, plan.Target), targetServiceAccountID(ctx, state.Target)
+	if planChanges(planTarget, stateTarget) {
+		diags.AddAttributeWarning(
+			path.Root("target").AtName("service_account_id"),
+			"Rule target changes in place",
+			fmt.Sprintf("Tokens minted through federation rule %q will act as service account %s instead of %s as soon as this applies. Review it as an access change.",
+				rule, planTarget.ValueString(), stateTarget.ValueString()),
+		)
+	}
+
+	if planChanges(plan.OAuthScope, state.OAuthScope) {
+		diags.AddAttributeWarning(
+			path.Root("oauth_scope"),
+			"Rule scope changes in place",
+			fmt.Sprintf("Tokens minted through federation rule %q will carry scope %q instead of %q as soon as this applies. Review it as an access change.",
+				rule, plan.OAuthScope.ValueString(), state.OAuthScope.ValueString()),
+		)
+	}
+
+	if planChanges(plan.AppliesToAllWorkspaces, state.AppliesToAllWorkspaces) || planChanges(plan.WorkspaceID, state.WorkspaceID) {
+		attribute := path.Root("workspace_id")
+		if planChanges(plan.AppliesToAllWorkspaces, state.AppliesToAllWorkspaces) {
+			attribute = path.Root("applies_to_all_workspaces")
+		}
+		diags.AddAttributeWarning(
+			attribute,
+			"Rule workspace binding changes in place",
+			fmt.Sprintf("Tokens minted through federation rule %q will be usable in a different set of workspaces as soon as this applies (workspace_id %s -> %s, applies_to_all_workspaces %t -> %t). Review it as an access change.",
+				rule, stringOrNullLabel(state.WorkspaceID), stringOrNullLabel(plan.WorkspaceID),
+				state.AppliesToAllWorkspaces.ValueBool(), plan.AppliesToAllWorkspaces.ValueBool()),
+		)
+	}
+
+	return diags
+}
+
+// targetServiceAccountID extracts target.service_account_id; unknown when
+// the object itself is unknown or null so planChanges stays quiet.
+func targetServiceAccountID(ctx context.Context, target types.Object) types.String {
+	if target.IsNull() || target.IsUnknown() {
+		return types.StringUnknown()
+	}
+	var t federationRuleTargetModel
+	if target.As(ctx, &t, basetypes.ObjectAsOptions{}).HasError() {
+		return types.StringUnknown()
+	}
+	return t.ServiceAccountID
+}
+
+// stringOrNullLabel renders a string value for a diagnostic.
+func stringOrNullLabel(v types.String) string {
+	if v.IsNull() {
+		return "null"
+	}
+	return v.ValueString()
 }
 
 // --- Configure ---

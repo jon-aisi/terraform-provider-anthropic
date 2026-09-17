@@ -37,6 +37,7 @@ import (
 var _ resource.Resource = &FederationIssuerResource{}
 var _ resource.ResourceWithImportState = &FederationIssuerResource{}
 var _ resource.ResourceWithConfigValidators = &FederationIssuerResource{}
+var _ resource.ResourceWithModifyPlan = &FederationIssuerResource{}
 
 func NewFederationIssuerResource() resource.Resource {
 	return &FederationIssuerResource{}
@@ -337,6 +338,54 @@ func (v *federationIssuerConfigValidator) ValidateResource(ctx context.Context, 
 			}
 		}
 	}
+}
+
+// --- ModifyPlan ---
+
+// ModifyPlan warns when the plan changes what the issuer trusts. issuer_url
+// and jwks are updatable in place (RequiresReplace is impractical: archive is
+// refused while rules exist and names are unique), so the change is a single
+// `~` line although every rule under the issuer trusts the new identity
+// provider or keys the moment it applies.
+func (r *FederationIssuerResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	// Create and destroy do not change the trust of an existing issuer.
+	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+		return
+	}
+
+	var plan, state FederationIssuerResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(federationIssuerTrustChangeWarnings(plan, state)...)
+}
+
+// federationIssuerTrustChangeWarnings is the pure part of ModifyPlan.
+func federationIssuerTrustChangeWarnings(plan, state FederationIssuerResourceModel) diag.Diagnostics {
+	var diags diag.Diagnostics
+	issuer := state.Name.ValueString()
+
+	if planChanges(plan.IssuerURL, state.IssuerURL) {
+		diags.AddAttributeWarning(
+			path.Root("issuer_url"),
+			"Issuer trust changes in place",
+			fmt.Sprintf("issuer_url of federation issuer %q changes from %q to %q. Every federation rule under this issuer will trust the new identity provider as soon as this applies. Review it as an access change.",
+				issuer, state.IssuerURL.ValueString(), plan.IssuerURL.ValueString()),
+		)
+	}
+	if planChanges(plan.JWKS, state.JWKS) {
+		diags.AddAttributeWarning(
+			path.Root("jwks"),
+			"Issuer signing keys change in place",
+			fmt.Sprintf("jwks of federation issuer %q changes. Every federation rule under this issuer will accept tokens signed by the new keys as soon as this applies. Review it as an access change.",
+				issuer),
+		)
+	}
+
+	return diags
 }
 
 // --- Configure ---
