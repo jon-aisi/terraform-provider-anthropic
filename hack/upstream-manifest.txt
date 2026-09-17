@@ -1,0 +1,89 @@
+# Expected tree after hack/trim-upstream.sh; the script fails on any difference.
+# Regenerate with 'bash hack/trim-upstream.sh --update-manifest' once every
+# reported entry has been reviewed (FORK.md, sync checklist).
+root .github
+root .gitignore
+root .golangci.yml
+root .goreleaser.yml
+root .pre-commit-config.yaml
+root .tflint.hcl
+root CHANGELOG.md
+root CONTRIBUTING.md
+root FORK.md
+root GNUmakefile
+root LICENSE
+root README.md
+root RELEASE.md
+root REVIEW.md
+root docs
+root examples
+root go.mod
+root go.sum
+root hack
+root internal
+root main.go
+root mise.toml
+root templates
+root terraform-registry-manifest.json
+root tests
+root tools
+root vendor
+dir internal/acctest
+dir internal/admin
+dir internal/admintest
+dir internal/errors
+dir internal/provider
+dir internal/providerdata
+dir internal/services/federation
+dir internal/services/serviceaccounts
+dir internal/services/workspaces
+dir internal/tfvalue
+dir internal/wifprobetest
+go internal/acctest/acctest.go
+go internal/admin/admin_client.go
+go internal/admintest/admintest.go
+go internal/errors/api_key.go
+go internal/errors/auth_token.go
+go internal/provider/base_url.go
+go internal/provider/federation.go
+go internal/provider/provider.go
+go internal/providerdata/providerdata.go
+go internal/services/federation/archived_drift.go
+go internal/services/federation/federation_issuer_data_source.go
+go internal/services/federation/federation_issuer_resource.go
+go internal/services/federation/federation_issuers_data_source.go
+go internal/services/federation/federation_rule_data_source.go
+go internal/services/federation/federation_rule_resource.go
+go internal/services/federation/federation_rule_workspace_resource.go
+go internal/services/federation/federation_rule_workspaces_data_source.go
+go internal/services/federation/federation_rules_data_source.go
+go internal/services/federation/plan_changes.go
+go internal/services/serviceaccounts/service_account_data_source.go
+go internal/services/serviceaccounts/service_account_resource.go
+go internal/services/serviceaccounts/service_account_workspace_resource.go
+go internal/services/serviceaccounts/service_account_workspaces_data_source.go
+go internal/services/serviceaccounts/service_accounts_data_source.go
+go internal/services/workspaces/workspace_data_source.go
+go internal/services/workspaces/workspace_resource.go
+go internal/services/workspaces/workspaces_data_source.go
+go internal/tfvalue/tfvalue.go
+go internal/wifprobetest/probe.go
+workflow .github/workflows/codeql.yml
+workflow .github/workflows/goreleaser-check.yml
+workflow .github/workflows/goreleaser-release.yml
+workflow .github/workflows/provider.yml
+workflow .github/workflows/security.yml
+hooks before:
+hooks   hooks:
+hooks     # Dependencies are vendored; verify go.sum against the module cache
+hooks     # instead of tidying, which could desynchronise go.mod from vendor/.
+hooks     - go mod verify
+sha256 36045fa7f55e881cf00c70f6b0421eda5bf8fe565b1fb2df901fd97ee1c5e7e6 main.go
+sha256 081000b9fb6386ef0a56bbaf64141b67425d2cd57973c1dc667d014c01aa7abe GNUmakefile
+sha256 5e424d1b9269b1c9eb8a720c9a2935fa8f28235ba35423c7373f6e8085edc2d1 mise.toml
+sha256 279623e86285cab27a29c4470e0b225a67dcf5da2ccd8c1506ca4ea127d599de hack/trim-upstream.sh
+sha256 ba3963ec81a72aee0ccd910fb898d4158410df946613a4b7db09fb5248f779ed tools/.poutine.yml
+sha256 37077dbeb81a65fc89cde761885ce4d323afafb7f07c9173ba63de21496d3339 tools/go.mod
+sha256 89b2844ca96b1099722368305a4509379846e96ee16b86d7cbe48a51688ed3c5 tools/go.sum
+sha256 e3dfe5619d1baf75f0d837cd40bb0e436d961306389833a6011e7aa31d3fb06e tools/semgrep.yml
+sha256 2dd784e1945d1c53def765e7d3ac306af0c5aefe6715a825ee7d8aaf0b066ca5 tools/tools.go

@@ -35,15 +35,20 @@ stored Anthropic credential. Upstream is MPL-2.0; so is this fork (`LICENSE`).
   acceptance-test workflow (needs organisation secrets), and the Claude Code
   agent files (`.claude/`, `CLAUDE.md`).
 
-`hack/trim-upstream.sh` encodes the deletions as an allowlist.
+`hack/trim-upstream.sh` encodes the deletions as an allowlist, then compares
+what is left with `hack/upstream-manifest.txt` and fails on any difference:
+a new package or non-test file under `internal/`, a new root entry or
+workflow, a new `.goreleaser.yml` before hook, or a change to `main.go`,
+`GNUmakefile`, `mise.toml`, `tools/` or `hack/`. The allowlists say what to
+delete; the manifest says what may exist.
 
 ## What was added
 
 - `internal/provider/federation.go`: resolution and validation of the
   federation attributes, and the SDK option that performs the exchange.
 - `internal/provider/base_url.go`: one validated `base_url` for both clients.
-- Tests for both, `vendor/`, the CI/release changes, `hack/trim-upstream.sh`,
-  `FORK.md`, `REVIEW.md`.
+- Tests for both, `vendor/`, the CI/release changes, `hack/trim-upstream.sh`
+  with its manifest `hack/upstream-manifest.txt`, `FORK.md`, `REVIEW.md`.
 - Indirect dependency bumps past `govulncheck` findings (`grpc`, `x/net`,
   `x/text` and their `x/*` cascade; see `REVIEW.md`). Upstream's `go.mod`
   will conflict on these lines at every rebase until upstream catches up:
@@ -82,12 +87,20 @@ Expect conflicts of two kinds:
 ## Checklist for each sync
 
 - [ ] `git log main@{1}..main` reviewed: read every upstream change to
-      `internal/admin`, `internal/provider`, `internal/errors`,
+      `main.go`, `internal/admin`, `internal/provider`, `internal/errors`,
       `internal/services/{federation,serviceaccounts,workspaces}`, `go.mod`,
-      `.goreleaser.yml` and `.github/`. New network calls, new dependencies
-      and new credential handling go into `REVIEW.md`.
-- [ ] `bash hack/trim-upstream.sh` run; `internal/services` holds only
-      `federation`, `serviceaccounts`, `workspaces`.
+      `.goreleaser.yml` (the `before.hooks` run on the release runner next to
+      the GPG key), `.github/`, `GNUmakefile`, `mise.toml`, `tools/` and
+      `hack/`. New network calls, new dependencies and new credential
+      handling go into `REVIEW.md`.
+- [ ] `bash hack/trim-upstream.sh` run. It fails listing every entry that is
+      not in `hack/upstream-manifest.txt`: new packages or non-test files
+      under `internal/` (an `init()` there runs in the provider), new root
+      entries, new workflows, changed hooks, changed `main.go`/`GNUmakefile`/
+      `mise.toml`/`tools/`/`hack/`. Review each; keep only what the fork
+      needs; then `bash hack/trim-upstream.sh --update-manifest` and commit
+      the manifest. `internal/services` holds only `federation`,
+      `serviceaccounts`, `workspaces`.
 - [ ] `go mod tidy && go mod vendor && go mod verify`; `vendor/` committed, and
       `git ls-files --others --ignored --exclude-standard vendor` prints nothing
       (upstream's `.gitignore` patterns match at any depth).
