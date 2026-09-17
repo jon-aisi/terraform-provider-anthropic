@@ -486,6 +486,12 @@ func (r *FederationRuleResource) Read(ctx context.Context, req resource.ReadRequ
 		return
 	}
 
+	// An archived rule stays in state. RemoveResource would make the next plan
+	// re-create it, re-granting access that was revoked in the Console.
+	if !data.ArchivedAt.IsNull() {
+		addArchivedOutsideTerraformWarning(&resp.Diagnostics, "Federation rule", data.Name.ValueString(), data.ID.ValueString(), data.ArchivedAt.ValueString())
+	}
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 

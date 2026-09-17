@@ -229,6 +229,17 @@ func (r *ServiceAccountResource) Read(ctx context.Context, req resource.ReadRequ
 		return
 	}
 
+	// An archived service account stays in state. RemoveResource would make
+	// the next plan re-create it, and every rule targeting it would then be
+	// live again for an identity that was retired in the Console.
+	if !data.ArchivedAt.IsNull() {
+		resp.Diagnostics.AddWarning(
+			"Service account archived outside Terraform",
+			fmt.Sprintf("Service account %q (%s) was archived outside Terraform at %s. Further updates will fail; remove it from configuration or re-create it under a new name.",
+				data.Name.ValueString(), data.ID.ValueString(), data.ArchivedAt.ValueString()),
+		)
+	}
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 

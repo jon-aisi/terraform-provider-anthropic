@@ -435,6 +435,11 @@ func (r *FederationIssuerResource) Read(ctx context.Context, req resource.ReadRe
 		return
 	}
 
+	// An archived issuer stays in state: see the note in FederationRuleResource.Read.
+	if !data.ArchivedAt.IsNull() {
+		addArchivedOutsideTerraformWarning(&resp.Diagnostics, "Federation issuer", data.Name.ValueString(), data.ID.ValueString(), data.ArchivedAt.ValueString())
+	}
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
