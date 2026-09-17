@@ -358,10 +358,10 @@ known defect.
    inline `identity_token` has no refresh path at all.
 5. **Provider address.** Now `terraform.aisi.org.uk/aisi/anthropic` in
    `main.go`, `tests/versions.tf`, every `examples/**/versions.tf` under
-   `resources/` and `data-sources/`, and the guides. `docs/index.md` and
-   `examples/provider/provider.tf` still show the upstream address. The
-   fork's versions carry a prerelease suffix, which Terraform matches only
-   with an exact constraint; the install guide says so.
+   `resources/` and `data-sources/`, `examples/provider/provider.tf` and
+   the guides; `docs/index.md` is generated from that example. The fork's
+   versions carry a prerelease suffix, which Terraform matches only with an
+   exact constraint; the install guide says so.
 6. **Test organisation.** The acceptance tests refuse to run unless
    `ANTHROPIC_TEST_ORGANIZATION_ID` equals the organisation
    `GET /v1/organizations/me` reports for the credential, and read the
@@ -421,7 +421,7 @@ confirm.
 | Resources | 4 Trust-root changes in place | `faff892` | `ModifyPlan` warns when an issuer's trust or a rule's grant changes in place. | — |
 | Resources | 5 Rebase can smuggle code past the trim | `25b8601` | `hack/trim-upstream.sh` fails on anything not in `hack/upstream-manifest.txt`. | — |
 | Resources | 6 Release job in `audit` mode | `b0b8f48` | harden-runner in `block` mode with an egress allowlist. | One audit-mode run on a throwaway tag to reconcile the allowlist. |
-| Resources | 7 Provider address | `9548d2e` | `terraform.aisi.org.uk/aisi/anthropic` in `main.go`, `tests/versions.tf`, `examples/**/versions.tf` and the guides; `docs/guides/install.md` added. | `docs/index.md` and `examples/provider/provider.tf` still show the upstream address. |
+| Resources | 7 Provider address | `9548d2e` | `terraform.aisi.org.uk/aisi/anthropic` in `main.go`, `tests/versions.tf`, `examples/**/versions.tf` and the guides; `docs/guides/install.md` added; `examples/provider/provider.tf` and the `docs/index.md` generated from it followed once the branches were combined. | — |
 | Resources | 8 Acceptance tests write to any organisation | `503906d` | Organisation guard, `tf-acc-*` random names and sweepers in `internal/acctest`. | `GET /v1/organizations/me` with a bearer and with an Admin API key; the API accepts the generated JWK. |
 | Resources | 9 `applies_to_all_workspaces` false to true keeps `workspace_id` | `e3e7b28` | A cleared `workspace_id` is sent as `null`. | `"workspace_id": null` with `"applies_to_all_workspaces": true` is accepted and clears the binding. |
 | Resources | 10 `service_account_workspace` role change replaces | `d86661a` | The workspace role changes in place through the Add upsert. | Add on an existing membership returns 200 with the new role. |
