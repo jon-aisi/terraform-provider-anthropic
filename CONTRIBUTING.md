@@ -44,21 +44,19 @@ With `dev_overrides`, `terraform init` is not required — run `terraform plan` 
 
 Alternatively, `make terraform-test` auto-generates a project-local `.dev.tfrc` and uses it automatically (see [Run Terraform native tests](#run-terraform-native-tests) below).
 
-### Set your API keys
+### Set your credentials
 
-The provider uses two API keys:
+The federation resources need an `org:admin` OAuth bearer token; `anthropic_workspace` needs an Admin API key. See the provider docs (`docs/index.md`) for the workload identity federation variables that mint the bearer in CI.
 
 ```bash
-# Required for all resources and data sources
-export ANTHROPIC_API_KEY="sk-ant-..."
+# Federation resources and data sources (interactive)
+export ANTHROPIC_AUTH_TOKEN="$(ant auth print-credentials --profile admin --access-token)"
 
-# Required for organization management resources (workspaces, environments)
+# anthropic_workspace resource and data sources
 export ANTHROPIC_ADMIN_API_KEY="sk-ant-admin-..."
 ```
 
-At least one key must be set. `ANTHROPIC_API_KEY` is needed for most resources and data sources. `ANTHROPIC_ADMIN_API_KEY` is needed for organization management resources (`anthropic_workspace`). Both can be set at the same time.
-
-> **Test isolation.** Acceptance and Terraform native tests create real resources. Use an `ANTHROPIC_API_KEY` scoped to a **dedicated, non-production workspace** so test resources never land in a production workspace. This project uses a workspace named `terraform-tests`: standard-API resources (vaults, agents, environments, skills, ...) are created there via the key's scope, and the Admin API read-only data source tests target the same workspace by its ID (exposed as `acctest.TerraformTestsWorkspaceID`).
+> **Test isolation.** Acceptance tests create real resources in the organization the credential belongs to. Run them against a dedicated, non-production organization.
 
 A `.env` file at the project root can hold machine-specific values. **Always source it before running any command:**
 
@@ -80,7 +78,7 @@ Go acceptance tests run against the live Anthropic API:
 TF_ACC=1 make testacc
 ```
 
-Requires `ANTHROPIC_API_KEY` to be set.
+Requires `ANTHROPIC_AUTH_TOKEN` (federation tests) and `ANTHROPIC_ADMIN_API_KEY` (workspace tests) to be set; tests skip or fail without them.
 
 ### Run Terraform native tests
 
@@ -90,7 +88,7 @@ Terraform native tests (`.tftest.hcl` files under `tests/`) build the provider, 
 make terraform-test
 ```
 
-Requires both `ANTHROPIC_API_KEY` and `ANTHROPIC_ADMIN_API_KEY` to be set (some tests exercise Admin API resources).
+The surviving tests plan against mock providers or dummy credentials, except the two workspace data source tests, which need `ANTHROPIC_ADMIN_API_KEY`.
 
 ## Merge Request Process
 

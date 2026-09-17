@@ -101,7 +101,7 @@ func TestRequireOAuthClientNamesTheRightCredential(t *testing.T) {
 	RequireOAuthResourceClient(nil, &diags)
 
 	detail := diags[0].Detail()
-	for _, want := range []string{"auth_token", "ANTHROPIC_AUTH_TOKEN", "org:admin", "not accepted"} {
+	for _, want := range []string{"auth_token", "ANTHROPIC_AUTH_TOKEN", "identity_token_file", "org:admin", "not accepted"} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("detail %q does not mention %q", detail, want)
 		}

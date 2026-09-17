@@ -5,6 +5,7 @@ package provider
 
 import (
 	"context"
+	"net/http"
 	"os"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -30,13 +31,23 @@ type AnthropicProvider struct {
 	// provider is built and ran locally, and "test" when running acceptance
 	// testing.
 	version string
+
+	// httpClient, when set, is used by every client the provider builds.
+	// Tests set it to an httptest TLS server's client; production leaves it
+	// nil and each client uses its own default.
+	httpClient *http.Client
 }
 
 // AnthropicProviderModel describes the provider data model.
 type AnthropicProviderModel struct {
-	ApiKey      types.String `tfsdk:"api_key"`
-	AdminApiKey types.String `tfsdk:"admin_api_key"`
-	AuthToken   types.String `tfsdk:"auth_token"`
+	AdminApiKey       types.String `tfsdk:"admin_api_key"`
+	AuthToken         types.String `tfsdk:"auth_token"`
+	IdentityToken     types.String `tfsdk:"identity_token"`
+	IdentityTokenFile types.String `tfsdk:"identity_token_file"`
+	FederationRuleID  types.String `tfsdk:"federation_rule_id"`
+	OrganizationID    types.String `tfsdk:"organization_id"`
+	ServiceAccountID  types.String `tfsdk:"service_account_id"`
+	WorkspaceID       types.String `tfsdk:"workspace_id"`
 }
 
 func (p *AnthropicProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -46,23 +57,59 @@ func (p *AnthropicProvider) Metadata(ctx context.Context, req provider.MetadataR
 
 func (p *AnthropicProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Manages the Workload Identity Federation subset of the Anthropic Admin API. " +
+			"The federation resources and data sources authenticate with an `org:admin` OAuth bearer token, " +
+			"supplied either statically (`auth_token`) or minted from the workload's own OIDC identity token " +
+			"(`identity_token_file` with `federation_rule_id` and `organization_id`). " +
+			"An Admin API key (`admin_api_key`) is **not accepted** by the federation endpoints; it is only used by `anthropic_workspace`.",
 		Attributes: map[string]schema.Attribute{
-			"api_key": schema.StringAttribute{
-				Optional:    true,
-				Sensitive:   true,
-				Description: "The Anthropic API key. Can also be set via the ANTHROPIC_API_KEY environment variable.",
-			},
 			"admin_api_key": schema.StringAttribute{
-				Optional:    true,
-				Sensitive:   true,
-				Description: "The Anthropic Admin API key for organization management endpoints (workspaces, members). Can also be set via the ANTHROPIC_ADMIN_API_KEY environment variable.",
+				Optional:  true,
+				Sensitive: true,
+				Description: "The Anthropic Admin API key. Used only by the `anthropic_workspace` resource and data sources; " +
+					"the Workload Identity Federation endpoints reject it. " +
+					"Can also be set via the ANTHROPIC_ADMIN_API_KEY environment variable.",
 			},
 			"auth_token": schema.StringAttribute{
 				Optional:  true,
 				Sensitive: true,
-				Description: "An org:admin OAuth bearer token (`sk-ant-oat01-...`) for endpoints that reject API keys, " +
-					"such as the Workload Identity Federation admin endpoints. " +
+				Description: "An org:admin OAuth bearer token (`sk-ant-oat01-...`) for the Workload Identity Federation " +
+					"admin endpoints. Takes precedence over workload identity federation when both are configured. " +
 					"Can also be set via the ANTHROPIC_AUTH_TOKEN environment variable.",
+			},
+			"identity_token": schema.StringAttribute{
+				Optional:  true,
+				Sensitive: true,
+				Description: "An OIDC identity token (JWT) exchanged for an org:admin access token through workload " +
+					"identity federation. Prefer `identity_token_file`: the token is re-exchanged when the access token " +
+					"expires, and a JWT carrying a single-use `jti` is accepted only once. " +
+					"Can also be set via the ANTHROPIC_IDENTITY_TOKEN environment variable.",
+			},
+			"identity_token_file": schema.StringAttribute{
+				Optional: true,
+				Description: "Path to a file holding the OIDC identity token. Re-read before every exchange, so a " +
+					"rotated token is picked up. Mutually exclusive with `identity_token`. " +
+					"Can also be set via the ANTHROPIC_IDENTITY_TOKEN_FILE environment variable.",
+			},
+			"federation_rule_id": schema.StringAttribute{
+				Optional: true,
+				Description: "The federation rule (`fdrl_...`) that governs the exchange. Required with an identity token. " +
+					"Can also be set via the ANTHROPIC_FEDERATION_RULE_ID environment variable.",
+			},
+			"organization_id": schema.StringAttribute{
+				Optional: true,
+				Description: "The organization UUID the federation rule belongs to. Required with an identity token. " +
+					"Can also be set via the ANTHROPIC_ORGANIZATION_ID environment variable.",
+			},
+			"service_account_id": schema.StringAttribute{
+				Optional: true,
+				Description: "The service account (`svac_...`) the rule targets; an expected-target check for rules with " +
+					"`target_type = SERVICE_ACCOUNT`. Can also be set via the ANTHROPIC_SERVICE_ACCOUNT_ID environment variable.",
+			},
+			"workspace_id": schema.StringAttribute{
+				Optional: true,
+				Description: "The workspace (`wrkspc_...`, or `default`) the minted token is scoped to. Required when the " +
+					"rule is enabled for more than one workspace. Can also be set via the ANTHROPIC_WORKSPACE_ID environment variable.",
 			},
 		},
 	}
@@ -77,16 +124,17 @@ func (p *AnthropicProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
-	apiKey := resolveCredential(data.ApiKey, "ANTHROPIC_API_KEY")
 	adminApiKey := resolveCredential(data.AdminApiKey, "ANTHROPIC_ADMIN_API_KEY")
 	authToken := resolveCredential(data.AuthToken, "ANTHROPIC_AUTH_TOKEN")
+	fed := resolveFederation(data)
 
-	if apiKey == "" && adminApiKey == "" && authToken == "" {
+	if adminApiKey == "" && authToken == "" && !fed.configured() {
 		resp.Diagnostics.AddError(
 			"Missing Credentials",
-			"At least one credential must be configured: api_key (ANTHROPIC_API_KEY) for standard resources, "+
-				"admin_api_key (ANTHROPIC_ADMIN_API_KEY) for organization management resources, "+
-				"or auth_token (ANTHROPIC_AUTH_TOKEN) for endpoints that require an org:admin OAuth bearer token.",
+			"At least one credential must be configured: auth_token (ANTHROPIC_AUTH_TOKEN) or workload identity "+
+				"federation (identity_token_file / ANTHROPIC_IDENTITY_TOKEN_FILE with federation_rule_id and "+
+				"organization_id) for the Workload Identity Federation resources, "+
+				"or admin_api_key (ANTHROPIC_ADMIN_API_KEY) for anthropic_workspace.",
 		)
 		return
 	}
@@ -94,14 +142,29 @@ func (p *AnthropicProvider) Configure(ctx context.Context, req provider.Configur
 	// Each client carries exactly the credential resolved above and nothing
 	// the environment contributed on its own — see newSDKClient.
 	pd := &providerdata.ProviderData{}
-	if apiKey != "" {
-		pd.Client = newSDKClient(option.WithAPIKey(apiKey))
-	}
 	if adminApiKey != "" {
 		pd.AdminClient = admin.NewClient(adminApiKey)
+		if p.httpClient != nil {
+			pd.AdminClient.HTTPClient = p.httpClient
+		}
 	}
-	if authToken != "" {
-		pd.OAuthClient = &providerdata.OAuthClient{Client: newSDKClient(option.WithAuthToken(authToken))}
+
+	switch {
+	case authToken != "":
+		if fed.configured() {
+			resp.Diagnostics.AddWarning(
+				"Workload Identity Federation Settings Ignored",
+				"auth_token (or ANTHROPIC_AUTH_TOKEN) is set and takes precedence; the identity token and federation "+
+					"IDs are not used. Unset one of them to make the choice explicit.",
+			)
+		}
+		pd.OAuthClient = &providerdata.OAuthClient{Client: p.newSDKClient(option.WithAuthToken(authToken))}
+	case fed.configured():
+		fed.validate(&resp.Diagnostics)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		pd.OAuthClient = &providerdata.OAuthClient{Client: p.newSDKClient(fed.requestOption())}
 	}
 
 	resp.DataSourceData = pd
@@ -127,24 +190,33 @@ func resolveCredential(configValue types.String, envVar string) string {
 // five sources: ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, the profile named by
 // ANTHROPIC_PROFILE, env-var federation, and the fallback profile under
 // ~/.anthropic. The first two set a header before our explicit option is
-// applied, so with both variables exported — the normal case here — a client
-// would send x-api-key *and* Authorization, and the endpoints behind each
-// credential reject the other one. The three profile/federation sources go
-// further: option.WithConfig applies the profile's non-credential settings
-// unconditionally, so a profile left behind by `ant auth login` (which also
-// makes itself the active profile) would silently override the base URL and
-// stamp its workspace_id on every request — neither of which appears anywhere
-// in the Terraform configuration.
+// applied, so with an API key exported alongside the bearer a client would
+// send x-api-key *and* Authorization, and the federation endpoints reject the
+// former. The three profile/federation sources go further: option.WithConfig
+// applies the profile's non-credential settings unconditionally, so a profile
+// left behind by `ant auth login` (which also makes itself the active
+// profile) would silently override the base URL and stamp its workspace_id on
+// every request — neither of which appears anywhere in the Terraform
+// configuration. Federation is therefore resolved by the provider itself
+// (see federation.go) rather than left to the SDK's env chain.
 //
-// The provider resolves credentials itself, so the only environment variable
-// still worth honouring is ANTHROPIC_BASE_URL, which the marker option also
-// skips. It is read with an explicit emptiness check: an exported-but-empty
-// value must not replace the SDK's production default with "".
-func newSDKClient(credential option.RequestOption) *anthropic.Client {
-	opts := []option.RequestOption{option.WithoutEnvironmentDefaults(), credential}
+// The only environment variable still honoured is ANTHROPIC_BASE_URL, which
+// the marker option also skips. It is read with an explicit emptiness check:
+// an exported-but-empty value must not replace the SDK's production default
+// with "".
+//
+// The credential option goes last: the federation option captures the HTTP
+// client in effect when it is applied and performs the token exchange with
+// it, so option.WithHTTPClient has to precede it.
+func (p *AnthropicProvider) newSDKClient(credential option.RequestOption) *anthropic.Client {
+	opts := []option.RequestOption{option.WithoutEnvironmentDefaults()}
 	if baseURL := os.Getenv("ANTHROPIC_BASE_URL"); baseURL != "" {
 		opts = append(opts, option.WithBaseURL(baseURL))
 	}
+	if p.httpClient != nil {
+		opts = append(opts, option.WithHTTPClient(p.httpClient))
+	}
+	opts = append(opts, credential)
 
 	client := anthropic.NewClient(opts...)
 

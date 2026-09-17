@@ -25,13 +25,6 @@ var ProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServer, erro
 // source tests, which are organization-wide, target this workspace by ID.
 const TerraformTestsWorkspaceID = "wrkspc_01HMrPGQfWoZ5LnhFhxuvNsm"
 
-func PreCheck(t *testing.T) {
-	t.Helper()
-	if v := os.Getenv("ANTHROPIC_API_KEY"); v == "" {
-		t.Fatal("ANTHROPIC_API_KEY must be set for acceptance tests")
-	}
-}
-
 // PreCheckAdmin is used by acceptance tests that hit the Admin API
 // (organization endpoints under /v1/organizations/*).
 func PreCheckAdmin(t *testing.T) {

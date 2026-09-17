@@ -24,12 +24,11 @@ type OAuthClient struct {
 
 // ProviderData is passed to every resource and data source Configure call.
 type ProviderData struct {
-	// Client is the Anthropic SDK client for standard API endpoints.
-	Client *anthropic.Client
 	// AdminClient handles /v1/organizations/* endpoints using the Admin API key.
 	// Nil when admin_api_key is not configured.
 	AdminClient *admin.Client
 	// OAuthClient handles endpoints that require an org:admin OAuth bearer
-	// token and reject API keys. Nil when auth_token is not configured.
+	// token and reject API keys. Nil when neither auth_token nor workload
+	// identity federation is configured.
 	OAuthClient *OAuthClient
 }

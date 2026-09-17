@@ -11,55 +11,47 @@ This build manages the [Workload Identity Federation](https://platform.claude.co
 
 ## Authentication
 
-The provider accepts three distinct credentials, depending on which resources you manage. At least one must be configured; they are independent, and configuring one never substitutes for another.
+The federation resources and data sources (`anthropic_federation_*`, `anthropic_service_account*`) call the [Workload Identity Federation admin endpoints](https://platform.claude.com/docs/en/manage-claude/wif-admin-api). Those endpoints accept only an OAuth bearer token carrying the `org:admin` scope. **An Admin API key is not accepted there**, for reads or for writes: a configuration that declares federation resources with only `admin_api_key` fails at plan time with `Missing OAuth Token`.
 
-### API Key (`api_key` / `ANTHROPIC_API_KEY`)
+The provider obtains that bearer in one of two ways. Configure exactly one; when both are present `auth_token` wins and a warning is emitted.
 
-Not required by any resource or data source in this build.
+### Workload identity federation (`identity_token_file`, `federation_rule_id`, `organization_id`)
 
-Generate one in the [Anthropic Console → API Keys](https://platform.claude.com/settings/keys).
+The provider exchanges the workload's own OIDC identity token for an `org:admin` access token itself, with the [RFC 7523 jwt-bearer grant](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation#authenticate-from-your-workload) at `<base URL>/v1/oauth/token`, so CI stores no Anthropic credential at all. The access token is cached and re-exchanged before it expires; `identity_token_file` is re-read on every exchange so a rotated token is picked up.
 
-**Environment variable** (recommended):
+| Argument | Environment variable | |
+|---|---|---|
+| `identity_token_file` | `ANTHROPIC_IDENTITY_TOKEN_FILE` | Path to the OIDC JWT. Preferred over `identity_token`. |
+| `identity_token` | `ANTHROPIC_IDENTITY_TOKEN` | The JWT inline (Sensitive). A JWT with a single-use `jti` can be exchanged only once, so the first re-exchange fails. |
+| `federation_rule_id` | `ANTHROPIC_FEDERATION_RULE_ID` | Required. The `fdrl_...` rule granting `org:admin` (see the guide). |
+| `organization_id` | `ANTHROPIC_ORGANIZATION_ID` | Required. The organization UUID. |
+| `service_account_id` | `ANTHROPIC_SERVICE_ACCOUNT_ID` | Optional expected-target check (`svac_...`). |
+| `workspace_id` | `ANTHROPIC_WORKSPACE_ID` | Only when the rule is enabled for several workspaces (`wrkspc_...` or `default`). |
 
-```bash
-export ANTHROPIC_API_KEY="sk-ant-api03-..."
+These are the variables the Anthropic SDKs read for their own federation auto-discovery, so a workload configured for the SDK configures the provider too. None of the IDs is a secret. On GitHub Actions (with `permissions: id-token: write` on the job):
+
+```yaml
+- name: Request the GitHub OIDC token
+  run: |
+    curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+      "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://api.anthropic.com" \
+      | jq -r .value > /tmp/anthropic-identity-token
+
+- run: terraform plan
+  env:
+    ANTHROPIC_IDENTITY_TOKEN_FILE: /tmp/anthropic-identity-token
+    ANTHROPIC_FEDERATION_RULE_ID: fdrl_...
+    ANTHROPIC_ORGANIZATION_ID: 00000000-0000-0000-0000-000000000000
+    ANTHROPIC_SERVICE_ACCOUNT_ID: svac_...
 ```
 
-**Provider argument**:
+Which rule to point at, and why creating it is a one-time Console step, is covered in the [Workload Identity Federation guide](guides/workload_identity_federation).
 
-```hcl
-provider "anthropic" {
-  api_key = "sk-ant-api03-..."
-}
-```
+~> **Note**: GitHub and most OIDC issuers put a single-use `jti` in the token, and the file holds one token. The provider can re-exchange it only if the issuer does not enforce `check_jti`; otherwise the access token must outlive the Terraform run. Set the rule's `token_lifetime_seconds` accordingly, or mint a fresh identity token into the file before each Terraform command.
 
-### Admin API Key (`admin_api_key` / `ANTHROPIC_ADMIN_API_KEY`)
+### Static bearer token (`auth_token` / `ANTHROPIC_AUTH_TOKEN`)
 
-Required for `anthropic_workspace` and the `anthropic_workspace` / `anthropic_workspaces` data sources. This is a separate credential scoped to your whole organization rather than a single workspace.
-
-Generate one in the [Anthropic Console → Admin API Keys](https://platform.claude.com/settings/admin-keys).
-
-**Environment variable** (recommended):
-
-```bash
-export ANTHROPIC_ADMIN_API_KEY="sk-ant-admin03-..."
-```
-
-**Provider argument**:
-
-```hcl
-provider "anthropic" {
-  admin_api_key = "sk-ant-admin03-..."
-}
-```
-
-The `admin_api_key` is optional — you only need it when using workspace-related resources.
-
-### OAuth Bearer Token (`auth_token` / `ANTHROPIC_AUTH_TOKEN`)
-
-Required for the endpoints that reject API keys outright and expect an `Authorization: Bearer` header carrying the `org:admin` scope — currently the [Workload Identity Federation admin endpoints](https://platform.claude.com/docs/en/manage-claude/wif-admin-api). An Admin API key is **not** accepted there, for reads or for writes.
-
-Obtain a token with the `ant` CLI:
+For interactive use. Obtain a token with the `ant` CLI:
 
 ```bash
 ant auth login --profile admin --scope "org:admin"
@@ -74,15 +66,17 @@ provider "anthropic" {
 }
 ```
 
-~> **Warning**: These tokens are short-lived. A long `terraform apply` can outlive the token and start failing with `401`. Mint a fresh token immediately before the run; the provider does not refresh it.
+~> **Warning**: These tokens are short-lived. A long `terraform apply` can outlive the token and start failing with `401`. Mint a fresh token immediately before the run; the provider does not refresh a static token.
 
-The `auth_token` is optional — you only need it for federation resources.
+### Admin API key (`admin_api_key` / `ANTHROPIC_ADMIN_API_KEY`)
 
-For the end-to-end setup (the one Console-only bootstrap rule, a complete GitHub Actions example, how the workload consumes the rule, importing wizard-created objects), see the [Workload Identity Federation guide](guides/workload_identity_federation).
+Required only for `anthropic_workspace` and the `anthropic_workspace` / `anthropic_workspaces` data sources, which are plain Admin API calls. Generate one in the [Anthropic Console → Admin API Keys](https://platform.claude.com/settings/admin-keys).
 
-~> **Note**: The provider needs a token it can read at plan time; it does not perform the Workload Identity Federation token exchange itself. The SDK's federation variables (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_IDENTITY_TOKEN_FILE`) are **not** a way to configure the provider: with no `auth_token` and no `ANTHROPIC_AUTH_TOKEN`, configuration fails with `Missing Credentials`. In CI, exchange the identity token in a preceding step — the [`ant` CLI with a federation profile, or the jwt-bearer grant directly](https://platform.claude.com/docs/en/manage-claude/wif-admin-api#bootstrap-a-workload-to-manage-wif) — and export the resulting bearer token.
+```bash
+export ANTHROPIC_ADMIN_API_KEY="sk-ant-admin03-..."
+```
 
-Profiles under `~/.config/anthropic` are ignored for the same reason: each client is built from the credential resolved above and nothing else, so a profile left active by `ant auth login` can never redirect a request to another base URL or scope it to another workspace behind your back.
+Profiles under `~/.config/anthropic` are ignored: each client is built from the credential resolved above and nothing else, so a profile left active by `ant auth login` can never redirect a request to another base URL or scope it to another workspace behind your back.
 
 ~> **Warning**: Never hardcode API keys in your Terraform configuration files.
 Use environment variables or a secrets manager instead.
@@ -109,6 +103,11 @@ provider "anthropic" {}
 
 ### Optional
 
-- `admin_api_key` (String, Sensitive) The Anthropic Admin API key for organization management endpoints (workspaces, members). Can also be set via the ANTHROPIC_ADMIN_API_KEY environment variable.
-- `api_key` (String, Sensitive) The Anthropic API key. Can also be set via the ANTHROPIC_API_KEY environment variable.
-- `auth_token` (String, Sensitive) An org:admin OAuth bearer token (`sk-ant-oat01-...`) for endpoints that reject API keys, such as the Workload Identity Federation admin endpoints. Can also be set via the ANTHROPIC_AUTH_TOKEN environment variable.
+- `admin_api_key` (String, Sensitive) The Anthropic Admin API key. Used only by the `anthropic_workspace` resource and data sources; the Workload Identity Federation endpoints reject it. Can also be set via the ANTHROPIC_ADMIN_API_KEY environment variable.
+- `auth_token` (String, Sensitive) An org:admin OAuth bearer token (`sk-ant-oat01-...`) for the Workload Identity Federation admin endpoints. Takes precedence over workload identity federation when both are configured. Can also be set via the ANTHROPIC_AUTH_TOKEN environment variable.
+- `federation_rule_id` (String) The federation rule (`fdrl_...`) that governs the exchange. Required with an identity token. Can also be set via the ANTHROPIC_FEDERATION_RULE_ID environment variable.
+- `identity_token` (String, Sensitive) An OIDC identity token (JWT) exchanged for an org:admin access token through workload identity federation. Prefer `identity_token_file`: the token is re-exchanged when the access token expires, and a JWT carrying a single-use `jti` is accepted only once. Can also be set via the ANTHROPIC_IDENTITY_TOKEN environment variable.
+- `identity_token_file` (String) Path to a file holding the OIDC identity token. Re-read before every exchange, so a rotated token is picked up. Mutually exclusive with `identity_token`. Can also be set via the ANTHROPIC_IDENTITY_TOKEN_FILE environment variable.
+- `organization_id` (String) The organization UUID the federation rule belongs to. Required with an identity token. Can also be set via the ANTHROPIC_ORGANIZATION_ID environment variable.
+- `service_account_id` (String) The service account (`svac_...`) the rule targets; an expected-target check for rules with `target_type = SERVICE_ACCOUNT`. Can also be set via the ANTHROPIC_SERVICE_ACCOUNT_ID environment variable.
+- `workspace_id` (String) The workspace (`wrkspc_...`, or `default`) the minted token is scoped to. Required when the rule is enabled for more than one workspace. Can also be set via the ANTHROPIC_WORKSPACE_ID environment variable.

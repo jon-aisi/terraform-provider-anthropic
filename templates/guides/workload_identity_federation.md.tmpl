@@ -19,9 +19,9 @@ The per-resource pages document each object. This guide covers the setup they ex
 
 ## 1. The credential: an `org:admin` OAuth bearer token
 
-The WIF endpoints reject API keys, including Admin API keys, for reads as well as writes. The provider therefore needs its third credential, `auth_token` (or `ANTHROPIC_AUTH_TOKEN`): an OAuth bearer token carrying the `org:admin` scope. The scope is only granted to organization members with the admin, owner or primary owner role, and it applies to the whole organization regardless of workspace.
+The WIF endpoints reject API keys, including Admin API keys, for reads as well as writes. The provider therefore needs an OAuth bearer token carrying the `org:admin` scope. The scope is only granted to organization members with the admin, owner or primary owner role, and it applies to the whole organization regardless of workspace.
 
-Obtain one interactively with the [`ant` CLI](https://platform.claude.com/docs/en/cli-sdks-libraries/cli/quickstart), under a profile reserved for administration:
+There are two ways to give the provider that bearer. In CI, once the bootstrap rule of [section 2](#2-the-once-per-organization-bootstrap) exists, the provider mints it itself from the workload's identity token ([Minting the token in CI](#minting-the-token-in-ci)). Interactively, obtain one with the [`ant` CLI](https://platform.claude.com/docs/en/cli-sdks-libraries/cli/quickstart) under a profile reserved for administration and pass it as `auth_token` (or `ANTHROPIC_AUTH_TOKEN`):
 
 ```bash
 ant auth login --profile admin --scope "org:admin"
@@ -36,32 +36,34 @@ provider "anthropic" {
 }
 ```
 
-Three things to know about this token:
+Two things to know about a static token:
 
-- **It is short-lived.** A long `terraform apply` can outlive it and start failing with `401`. Re-run the `export` line immediately before every run (the CLI refreshes the token on export); the provider does not refresh it.
-- **The provider does not perform the WIF token exchange itself.** The SDK federation variables (`ANTHROPIC_FEDERATION_RULE_ID` and friends, see [section 4](#4-how-the-workload-consumes-the-rule)) do not configure the provider: with no `auth_token`, configuration fails with `Missing Credentials`. In CI, a preceding step has to exchange the identity token for the bearer and export it, see below.
+- **It is short-lived.** A long `terraform apply` can outlive it and start failing with `401`. Re-run the `export` line immediately before every run (the CLI refreshes the token on export); the provider does not refresh a static token.
 - **`ant auth login --profile admin` also makes that profile active for the CLI.** The provider ignores profiles (every client is built from the resolved credential and nothing else), but the `ant` CLI and SDKs in the same shell do not. Switch back with `ant profile activate default` and unset the variable when you are done.
 
 ### Minting the token in CI
 
-Once the bootstrap rule of [section 2](#2-the-once-per-organization-bootstrap) exists, a pipeline mints its own `org:admin` bearer from the platform's identity token with the [jwt-bearer grant](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation#authenticate-from-your-workload), then hands it to the provider through `ANTHROPIC_AUTH_TOKEN`. On GitHub Actions (with `permissions: id-token: write` on the job):
+Once the bootstrap rule of [section 2](#2-the-once-per-organization-bootstrap) exists, the provider exchanges the platform's identity token for an `org:admin` bearer itself, with the [jwt-bearer grant](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation#authenticate-from-your-workload), and re-exchanges it before it expires. Point it at the rule with the same variables the Anthropic SDKs read (`ANTHROPIC_IDENTITY_TOKEN_FILE`, `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`) or the matching provider arguments. On GitHub Actions (with `permissions: id-token: write` on the job):
 
 ```yaml
-- name: Mint an org:admin token through WIF
+- name: Request the GitHub OIDC token
   run: |
-    JWT=$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-      "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://api.anthropic.com" | jq -r .value)
-    TOKEN=$(curl --fail-with-body -sS https://api.anthropic.com/v1/oauth/token \
-      -H "content-type: application/json" \
-      -d "$(jq -n --arg jwt "$JWT" '{grant_type:"urn:ietf:params:oauth:grant-type:jwt-bearer",assertion:$jwt,federation_rule_id:"fdrl_...",organization_id:"00000000-0000-0000-0000-000000000000",service_account_id:"svac_..."}')" \
-      | jq -er .access_token)
-    echo "::add-mask::$TOKEN"
-    echo "ANTHROPIC_AUTH_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+    curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+      "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://api.anthropic.com" \
+      | jq -r .value > /tmp/anthropic-identity-token
 
 - run: terraform plan
+  env:
+    # Plain repository variables: none of these IDs is a secret.
+    ANTHROPIC_IDENTITY_TOKEN_FILE: /tmp/anthropic-identity-token
+    ANTHROPIC_FEDERATION_RULE_ID: fdrl_...
+    ANTHROPIC_ORGANIZATION_ID: 00000000-0000-0000-0000-000000000000
+    ANTHROPIC_SERVICE_ACCOUNT_ID: svac_...
 ```
 
-The three IDs are those of the bootstrap rule, your organization and the rule's target service account. The same exchange works from any platform that issues OIDC tokens (on GitLab CI it goes in `before_script`, with the token requested through `id_tokens`, see [section 4](#4-how-the-workload-consumes-the-rule)). The minted token lives `token_lifetime_seconds` at most, so mint it in the job that runs Terraform, not in an earlier one.
+The three IDs are those of the bootstrap rule, your organization and the rule's target service account. Leave `ANTHROPIC_AUTH_TOKEN` unset: a static token takes precedence over federation (the provider warns when both are set). The same setup works from any platform that issues OIDC tokens (on GitLab CI the token is requested through `id_tokens`, see [section 4](#4-how-the-workload-consumes-the-rule)).
+
+~> **Note**: The identity token file holds one JWT, and GitHub's carries a single-use `jti`. The provider re-reads the file before each exchange, but it cannot request a new GitHub token, so with `check_jti` enabled on the issuer a re-exchange fails once the access token expires. Give the bootstrap rule a `token_lifetime_seconds` that covers the Terraform run, or run the request step again before each Terraform command.
 
 ## 2. The once-per-organization bootstrap
 
@@ -380,7 +382,7 @@ After importing, run `terraform plan` and reconcile until it is empty. The Conso
 - **Scopes an OAuth caller may grant.** `workspace:developer` and `workspace:inference` only. `org:admin` and `workspace:manage_tunnels` rules are Console-only, and an issuer backing one of them cannot be updated by the provider either. A rule granting `org:admin` must also target a service account whose `organization_role` is `admin`.
 - **Never use a wildcard subject for a privileged rule.** See the warning in section 2; for workspace-scoped rules, prefer an exact `subject_prefix` plus `claims` matches (`repository_owner`, `ref`) over a trailing `*`; if the trailing `*` is unavoidable, pin `ref` in `claims` so pull-request runs from forks never match.
 - **Token lifetimes.** `max_jwt_lifetime_seconds` on the issuer bounds the identity token you accept; `token_lifetime_seconds` on the rule bounds the access token you mint, itself capped at twice the identity token's remaining validity. Keep both short for CI.
-- **The `org:admin` token used by Terraform expires**, so a plan or apply that runs for a long time may need a fresh export in between. Mint it as late as possible and avoid combining WIF changes with slow resources in the same run.
+- **The `org:admin` token used by Terraform expires.** With a static `auth_token`, a long plan or apply may need a fresh export in between; mint it as late as possible. With federation the provider re-exchanges the identity token before the access token expires, subject to the `jti` caveat in [section 1](#minting-the-token-in-ci).
 
 ## See also
 

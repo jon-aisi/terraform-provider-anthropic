@@ -32,7 +32,9 @@ func requireOAuthClient(client *providerdata.OAuthClient, diags *diag.Diagnostic
 	diags.AddError(
 		"Missing OAuth Token",
 		"This "+kind+" requires an org:admin OAuth bearer token. "+
-			"Configure it via the auth_token provider argument or the ANTHROPIC_AUTH_TOKEN environment variable. "+
+			"Configure it via the auth_token provider argument or the ANTHROPIC_AUTH_TOKEN environment variable, "+
+			"or let the provider mint one through workload identity federation (identity_token_file / "+
+			"ANTHROPIC_IDENTITY_TOKEN_FILE with federation_rule_id and organization_id). "+
 			"An Admin API key (admin_api_key / ANTHROPIC_ADMIN_API_KEY) is not accepted on these endpoints.",
 	)
 	return false

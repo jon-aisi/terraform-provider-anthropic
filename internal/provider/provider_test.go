@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -37,6 +38,14 @@ func clearCredentialEnv(t *testing.T) {
 		"ANTHROPIC_ADMIN_API_KEY",
 		"ANTHROPIC_AUTH_TOKEN",
 		"ANTHROPIC_BASE_URL",
+		"ANTHROPIC_CONFIG_DIR",
+		"ANTHROPIC_PROFILE",
+		envIdentityToken,
+		envIdentityTokenFile,
+		envFederationRuleID,
+		envOrganizationID,
+		envServiceAccountID,
+		envWorkspaceID,
 	} {
 		t.Setenv(k, "")
 		if err := os.Unsetenv(k); err != nil {
@@ -46,12 +55,20 @@ func clearCredentialEnv(t *testing.T) {
 }
 
 // configureProvider runs Configure against a config holding attrs, with every
-// other provider attribute null.
+// other provider attribute null, using the default HTTP client.
 func configureProvider(t *testing.T, attrs map[string]tftypes.Value) *provider.ConfigureResponse {
+	t.Helper()
+	return configureProviderWith(t, nil, attrs)
+}
+
+// configureProviderWith is configureProvider with the HTTP client every
+// built client should use; tests pass an httptest TLS server's client so the
+// self-signed certificate is trusted.
+func configureProviderWith(t *testing.T, hc *http.Client, attrs map[string]tftypes.Value) *provider.ConfigureResponse {
 	t.Helper()
 
 	ctx := context.Background()
-	p := &AnthropicProvider{version: "test"}
+	p := &AnthropicProvider{version: "test", httpClient: hc}
 
 	schemaResp := &provider.SchemaResponse{}
 	p.Schema(ctx, provider.SchemaRequest{}, schemaResp)
@@ -97,6 +114,36 @@ func providerDataFrom(t *testing.T, resp *provider.ConfigureResponse) *providerd
 	return pd
 }
 
+func str(v string) tftypes.Value { return tftypes.NewValue(tftypes.String, v) }
+
+// recordingServer is a TLS httptest server that answers every request with
+// `{}` and keeps the headers of the last one.
+type recordingServer struct {
+	*httptest.Server
+	mu   sync.Mutex
+	last http.Header
+}
+
+func newRecordingServer(t *testing.T) *recordingServer {
+	t.Helper()
+	rs := &recordingServer{}
+	rs.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rs.mu.Lock()
+		rs.last = r.Header.Clone()
+		rs.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(rs.Close)
+	return rs
+}
+
+func (rs *recordingServer) lastHeader() http.Header {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return rs.last
+}
+
 func TestConfigureRequiresAtLeastOneCredential(t *testing.T) {
 	clearCredentialEnv(t)
 
@@ -108,8 +155,11 @@ func TestConfigureRequiresAtLeastOneCredential(t *testing.T) {
 	if got := resp.Diagnostics.Errors()[0].Summary(); got != "Missing Credentials" {
 		t.Errorf("summary = %q, want %q", got, "Missing Credentials")
 	}
-	if detail := resp.Diagnostics.Errors()[0].Detail(); !strings.Contains(detail, "auth_token") {
-		t.Errorf("detail %q does not offer auth_token as a third option", detail)
+	detail := resp.Diagnostics.Errors()[0].Detail()
+	for _, want := range []string{"auth_token", "identity_token_file", "admin_api_key"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("detail %q does not offer %s", detail, want)
+		}
 	}
 }
 
@@ -119,15 +169,12 @@ func TestConfigureAuthTokenAloneIsSufficient(t *testing.T) {
 	clearCredentialEnv(t)
 
 	resp := configureProvider(t, map[string]tftypes.Value{
-		"auth_token": tftypes.NewValue(tftypes.String, "sk-ant-oat01-config"),
+		"auth_token": str("sk-ant-oat01-config"),
 	})
 	pd := providerDataFrom(t, resp)
 
 	if pd.OAuthClient == nil {
 		t.Error("OAuthClient is nil, want a client built from auth_token")
-	}
-	if pd.Client != nil {
-		t.Error("Client should be nil when api_key is not configured")
 	}
 	if pd.AdminClient != nil {
 		t.Error("AdminClient should be nil when admin_api_key is not configured")
@@ -145,19 +192,30 @@ func TestConfigureAuthTokenFromEnvironment(t *testing.T) {
 	}
 }
 
+func TestConfigureAdminKeyAloneBuildsOnlyTheAdminClient(t *testing.T) {
+	clearCredentialEnv(t)
+
+	pd := providerDataFrom(t, configureProvider(t, map[string]tftypes.Value{
+		"admin_api_key": str("sk-ant-admin03-x"),
+	}))
+
+	if pd.AdminClient == nil {
+		t.Error("AdminClient is nil")
+	}
+	if pd.OAuthClient != nil {
+		t.Error("OAuthClient should be nil: an Admin API key must never stand in for the bearer the WIF endpoints need")
+	}
+}
+
 func TestConfigureBuildsEveryConfiguredClient(t *testing.T) {
 	clearCredentialEnv(t)
 
 	resp := configureProvider(t, map[string]tftypes.Value{
-		"api_key":       tftypes.NewValue(tftypes.String, "sk-ant-api03-x"),
-		"admin_api_key": tftypes.NewValue(tftypes.String, "sk-ant-admin03-x"),
-		"auth_token":    tftypes.NewValue(tftypes.String, "sk-ant-oat01-x"),
+		"admin_api_key": str("sk-ant-admin03-x"),
+		"auth_token":    str("sk-ant-oat01-x"),
 	})
 	pd := providerDataFrom(t, resp)
 
-	if pd.Client == nil {
-		t.Error("Client is nil")
-	}
 	if pd.AdminClient == nil {
 		t.Error("AdminClient is nil")
 	}
@@ -166,88 +224,36 @@ func TestConfigureBuildsEveryConfiguredClient(t *testing.T) {
 	}
 }
 
-// TestConfigureClientsCarryExactlyOneCredential is the regression test for the
+// TestConfigureOAuthClientCarriesOnlyTheBearer is the regression test for the
 // SDK's default credential chain: anthropic.NewClient prepends options derived
 // from ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN before our explicit option
-// runs, so without option.WithoutEnvironmentDefaults each client would present
+// runs, so without option.WithoutEnvironmentDefaults the client would present
 // both credentials. The WIF endpoints reject an API key outright, so the stray
 // header is not cosmetic.
-func TestConfigureClientsCarryExactlyOneCredential(t *testing.T) {
-	var got http.Header
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got = r.Header.Clone()
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	defer srv.Close()
+func TestConfigureOAuthClientCarriesOnlyTheBearer(t *testing.T) {
+	srv := newRecordingServer(t)
 
 	clearCredentialEnv(t)
 	t.Setenv("ANTHROPIC_BASE_URL", srv.URL)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-api03-env")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "sk-ant-oat01-env")
 
-	pd := providerDataFrom(t, configureProvider(t, nil))
+	pd := providerDataFrom(t, configureProviderWith(t, srv.Client(), nil))
 
-	t.Run("standard client sends only x-api-key", func(t *testing.T) {
-		if err := pd.Client.Get(context.Background(), "/v1/models", nil, nil); err != nil {
-			t.Fatalf("request failed: %v", err)
-		}
-		if got.Get("X-Api-Key") != "sk-ant-api03-env" {
-			t.Errorf("x-api-key = %q, want the API key", got.Get("X-Api-Key"))
-		}
-		if v := got.Get("Authorization"); v != "" {
-			t.Errorf("standard client also sent Authorization: %q", v)
-		}
-	})
-
-	t.Run("oauth client sends only the bearer token", func(t *testing.T) {
-		if err := pd.OAuthClient.Get(context.Background(), "/v1/models", nil, nil); err != nil {
-			t.Fatalf("request failed: %v", err)
-		}
-		if got.Get("Authorization") != "Bearer sk-ant-oat01-env" {
-			t.Errorf("authorization = %q, want the bearer token", got.Get("Authorization"))
-		}
-		if v := got.Get("X-Api-Key"); v != "" {
-			t.Errorf("oauth client also sent x-api-key: %q", v)
-		}
-	})
-}
-
-// TestConfigureStandardClientDropsInheritedBearer covers the mirror case of
-// TestConfigureClientsCarryExactlyOneCredential. The SDK's chain stops at the
-// first credential it finds, so ANTHROPIC_API_KEY masks the bearer token; only
-// an api_key supplied through config with just ANTHROPIC_AUTH_TOKEN exported
-// lets the chain contribute an Authorization header to the standard client.
-func TestConfigureStandardClientDropsInheritedBearer(t *testing.T) {
-	var got http.Header
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got = r.Header.Clone()
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	defer srv.Close()
-
-	clearCredentialEnv(t)
-	t.Setenv("ANTHROPIC_BASE_URL", srv.URL)
-	t.Setenv("ANTHROPIC_AUTH_TOKEN", "sk-ant-oat01-env")
-
-	pd := providerDataFrom(t, configureProvider(t, map[string]tftypes.Value{
-		"api_key": tftypes.NewValue(tftypes.String, "sk-ant-api03-config"),
-	}))
-
-	if err := pd.Client.Get(context.Background(), "/v1/models", nil, nil); err != nil {
+	if err := pd.OAuthClient.Get(context.Background(), "/v1/models", nil, nil); err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	if got.Get("X-Api-Key") != "sk-ant-api03-config" {
-		t.Errorf("x-api-key = %q, want the configured API key", got.Get("X-Api-Key"))
+	got := srv.lastHeader()
+	if got.Get("Authorization") != "Bearer sk-ant-oat01-env" {
+		t.Errorf("authorization = %q, want the bearer token", got.Get("Authorization"))
 	}
-	if v := got.Get("Authorization"); v != "" {
-		t.Errorf("standard client also sent Authorization: %q", v)
+	if v := got.Get("X-Api-Key"); v != "" {
+		t.Errorf("oauth client also sent x-api-key: %q", v)
 	}
 }
 
 // TestConfigureIgnoresTheAmbientProfile covers the credential sources beyond
-// the two env vars. `ant auth login --profile admin` — the very command the
+// the env vars. `ant auth login --profile admin` — the very command the
 // provider docs tell operators to run — writes a profile file and makes it the
 // active one, and the SDK's chain reaches it whenever no credential variable
 // is exported. option.WithConfig then applies that profile's non-credential
@@ -256,13 +262,7 @@ func TestConfigureStandardClientDropsInheritedBearer(t *testing.T) {
 // the Terraform configuration named a credential explicitly and never
 // mentioned a workspace.
 func TestConfigureIgnoresTheAmbientProfile(t *testing.T) {
-	var got http.Header
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got = r.Header.Clone()
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	defer srv.Close()
+	srv := newRecordingServer(t)
 
 	clearCredentialEnv(t)
 	writeProfile(t, "admin", `{
@@ -273,13 +273,14 @@ func TestConfigureIgnoresTheAmbientProfile(t *testing.T) {
 	}`)
 	t.Setenv("ANTHROPIC_BASE_URL", srv.URL)
 
-	pd := providerDataFrom(t, configureProvider(t, map[string]tftypes.Value{
-		"auth_token": tftypes.NewValue(tftypes.String, "sk-ant-oat01-config"),
+	pd := providerDataFrom(t, configureProviderWith(t, srv.Client(), map[string]tftypes.Value{
+		"auth_token": str("sk-ant-oat01-config"),
 	}))
 
 	if err := pd.OAuthClient.Get(context.Background(), "/v1/models", nil, nil); err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
+	got := srv.lastHeader()
 	if v := got.Get("anthropic-workspace-id"); v != "" {
 		t.Errorf("client inherited the profile's workspace scoping: anthropic-workspace-id = %q", v)
 	}
@@ -305,6 +306,39 @@ func writeProfile(t *testing.T, name, contents string) {
 
 	t.Setenv("ANTHROPIC_CONFIG_DIR", dir)
 	t.Setenv("ANTHROPIC_PROFILE", name)
+}
+
+// TestSchemaMarksCredentialsSensitive pins which attributes Terraform must
+// redact: every value that is itself a secret. Paths and IDs are not.
+func TestSchemaMarksCredentialsSensitive(t *testing.T) {
+	resp := &provider.SchemaResponse{}
+	(&AnthropicProvider{}).Schema(context.Background(), provider.SchemaRequest{}, resp)
+
+	want := map[string]bool{
+		"admin_api_key":       true,
+		"auth_token":          true,
+		"identity_token":      true,
+		"identity_token_file": false,
+		"federation_rule_id":  false,
+		"organization_id":     false,
+		"service_account_id":  false,
+		"workspace_id":        false,
+	}
+	for name, wantSensitive := range want {
+		attr, ok := resp.Schema.Attributes[name]
+		if !ok {
+			t.Errorf("attribute %s missing from schema", name)
+			continue
+		}
+		if attr.IsSensitive() != wantSensitive {
+			t.Errorf("%s: Sensitive = %v, want %v", name, attr.IsSensitive(), wantSensitive)
+		}
+	}
+	for name := range resp.Schema.Attributes {
+		if _, known := want[name]; !known {
+			t.Errorf("attribute %s is not covered by this test; decide whether it is Sensitive", name)
+		}
+	}
 }
 
 func TestResolveCredential(t *testing.T) {
