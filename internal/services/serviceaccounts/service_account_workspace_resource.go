@@ -80,7 +80,7 @@ func (r *ServiceAccountWorkspaceResource) Schema(_ context.Context, _ resource.S
 				Required: true,
 				MarkdownDescription: "Role to assign to the service account in the workspace. Valid values: `workspace_admin`, `workspace_developer`, " +
 					"`workspace_restricted_developer`, `workspace_user` (service accounts cannot hold `workspace_billing`, so the API type already excludes it). " +
-					"Immutable: the API has no update endpoint for this membership, so changing the role forces replacement.",
+					"Changed in place: the add-to-workspace call is documented as an upsert, so a role change re-issues it for the existing membership instead of removing and re-adding it.",
 				Validators: []validator.String{
 					stringvalidator.OneOf(
 						"workspace_admin",
@@ -89,7 +89,6 @@ func (r *ServiceAccountWorkspaceResource) Schema(_ context.Context, _ resource.S
 						"workspace_user",
 					),
 				},
-				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"implicit": schema.BoolAttribute{
 				Computed:            true,
@@ -184,11 +183,28 @@ func (r *ServiceAccountWorkspaceResource) Read(ctx context.Context, req resource
 
 // --- Update ---
 
-// Update is a no-op: every attribute is either RequiresReplace or Computed,
-// and the API has no update endpoint for this membership (workspace_role can
-// only be changed by re-adding the service account, which the framework
-// expresses as a replace, not an in-place update).
-func (r *ServiceAccountWorkspaceResource) Update(_ context.Context, _ resource.UpdateRequest, _ *resource.UpdateResponse) {
+// Update changes workspace_role, the only attribute that is neither
+// RequiresReplace nor Computed. The API has no update endpoint for the
+// membership; Add is documented as an upsert, so the same call Create makes
+// changes the role of the existing membership. A replace instead would run
+// Create then Delete under create_before_destroy: the Create upserts the new
+// role and the Delete then removes the membership altogether.
+func (r *ServiceAccountWorkspaceResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan ServiceAccountWorkspaceResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	member, err := addServiceAccountToWorkspace(ctx, r.client, plan.ServiceAccountID.ValueString(), plan.WorkspaceID.ValueString(), plan.WorkspaceRole.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Client Error", fmt.Sprintf("Unable to update service account workspace role: %s", err))
+		return
+	}
+
+	mapServiceAccountWorkspaceToState(member, &plan)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 // --- Delete ---

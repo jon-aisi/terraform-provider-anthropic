@@ -11,7 +11,7 @@ Assigns a Workload Identity Federation service account to a workspace with a giv
 
 > **API**: `POST /v1/organizations/service_accounts/{service_account_id}/workspaces` (add), `GET /v1/organizations/service_accounts/{service_account_id}/workspaces` (list, used for Read — there is no single-object GET), `DELETE /v1/organizations/service_accounts/{service_account_id}/workspaces/{workspace_id}` (remove).
 > **Auth**: org:admin OAuth bearer token (`auth_token` / `ANTHROPIC_AUTH_TOKEN`). Admin API keys are not accepted.
-> **Immutable**: every attribute forces replacement — the API has no update endpoint for this membership.
+> **Role changes in place**: `service_account_id` and `workspace_id` force replacement; `workspace_role` is changed by re-issuing the add call, which the API documents as an upsert. There is no separate update endpoint for this membership.
 
 ## Example Usage
 
@@ -48,7 +48,7 @@ output "service_account_workspace_implicit" {
 
 - `service_account_id` (String) Tagged ID of the service account to assign to the workspace. Immutable: the API has no update endpoint for this membership, so changing it forces replacement.
 - `workspace_id` (String) Tagged ID of the workspace to assign the service account to. Immutable: changing it forces replacement.
-- `workspace_role` (String) Role to assign to the service account in the workspace. Valid values: `workspace_admin`, `workspace_developer`, `workspace_restricted_developer`, `workspace_user` (service accounts cannot hold `workspace_billing`, so the API type already excludes it). Immutable: the API has no update endpoint for this membership, so changing the role forces replacement.
+- `workspace_role` (String) Role to assign to the service account in the workspace. Valid values: `workspace_admin`, `workspace_developer`, `workspace_restricted_developer`, `workspace_user` (service accounts cannot hold `workspace_billing`, so the API type already excludes it). Changed in place: the add-to-workspace call is documented as an upsert, so a role change re-issues it for the existing membership instead of removing and re-adding it.
 
 ### Read-Only
 
