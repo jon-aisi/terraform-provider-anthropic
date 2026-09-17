@@ -12,6 +12,8 @@ import (
 	"github.com/ippontech/terraform-provider-anthropic/internal/admintest"
 )
 
+// Test scaffolding shared by the workspaces package tests.
+//
 // newTestAdminClient returns an admin.Client pointed at srv instead of the real API.
 func newTestAdminClient(t *testing.T, srv *httptest.Server) *admin.Client {
 	t.Helper()
