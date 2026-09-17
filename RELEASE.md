@@ -3,9 +3,15 @@
 A release is a signed git tag pushed to the fork. There is no release bot.
 
 ```bash
-git tag -s v1.43.2-aisi.1 -m "v1.43.2-aisi.1"
-git push origin v1.43.2-aisi.1
+git tag -s v1.43.2 -m "v1.43.2"
+git push origin v1.43.2
 ```
+
+Tags are plain semver, `vX.Y.Z`. The provider address
+(`terraform.aisi.org.uk/aisi/anthropic`, see `docs/guides/install.md`) is
+what tells this build apart from upstream's, so the version carries no fork
+suffix; a prerelease suffix would also stop `~>` and `>=` constraints from
+matching, since Terraform selects a prerelease only by exact version.
 
 The tag triggers `.github/workflows/goreleaser-release.yml`, which re-vendors
 and diffs `vendor/` against `go.mod`/`go.sum`, builds and tests the tagged

@@ -145,11 +145,10 @@ terraform {
   required_version = ">= 1.11"
   required_providers {
     # The AISI build, installed from a filesystem mirror (see the
-    # "Installing the AISI build" guide). Pin the exact version: the
-    # fork's versions carry a prerelease suffix.
+    # "Installing the AISI build" guide, which says why to pin exactly).
     anthropic = {
       source  = "terraform.aisi.org.uk/aisi/anthropic"
-      version = "1.43.2-aisi.1"
+      version = "1.43.2"
     }
   }
 }

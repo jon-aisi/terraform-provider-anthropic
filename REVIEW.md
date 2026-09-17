@@ -361,9 +361,9 @@ known defect.
 5. **Provider address.** Now `terraform.aisi.org.uk/aisi/anthropic` in
    `main.go`, `tests/versions.tf`, every `examples/**/versions.tf` under
    `resources/` and `data-sources/`, `examples/provider/provider.tf` and
-   the guides; `docs/index.md` is generated from that example. The fork's
-   versions carry a prerelease suffix, which Terraform matches only with an
-   exact constraint; the install guide says so.
+   the guides; `docs/index.md` is generated from that example. Releases are
+   plain semver, `vX.Y.Z` (RELEASE.md): the address, not a version suffix,
+   distinguishes the fork, and `~> 1.0` in the examples matches.
 6. **Test organisation.** The acceptance tests refuse to run unless
    `ANTHROPIC_TEST_ORGANIZATION_ID` equals the organisation
    `GET /v1/organizations/me` reports for the credential, and read the

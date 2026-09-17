@@ -66,6 +66,11 @@ workflows.
 - `main`: mirror of `upstream/main`. Never commit to it.
 - `aisi/wif-subset`: the fork. Rebased onto `main` on every sync.
 
+## Releases
+
+Plain semver tags, `vX.Y.Z`, on `aisi/wif-subset` (`RELEASE.md`). The
+provider address, not a version suffix, distinguishes the fork from upstream.
+
 ## Syncing with upstream
 
 ```bash

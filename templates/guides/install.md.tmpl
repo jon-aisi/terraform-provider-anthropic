@@ -14,14 +14,14 @@ This provider is served at `terraform.aisi.org.uk/aisi/anthropic`. The hostname 
 A release (see `RELEASE.md`) is a GitHub release with one zip per platform, `terraform-provider-anthropic_<version>_<os>_<arch>.zip`, a `*_SHA256SUMS` file and a build provenance attestation. Terraform's packed filesystem mirror layout is those zips under a directory named after the provider address:
 
 ```text
-<mirror>/terraform.aisi.org.uk/aisi/anthropic/terraform-provider-anthropic_1.43.2-aisi.1_linux_amd64.zip
-<mirror>/terraform.aisi.org.uk/aisi/anthropic/terraform-provider-anthropic_1.43.2-aisi.1_darwin_arm64.zip
+<mirror>/terraform.aisi.org.uk/aisi/anthropic/terraform-provider-anthropic_1.43.2_linux_amd64.zip
+<mirror>/terraform.aisi.org.uk/aisi/anthropic/terraform-provider-anthropic_1.43.2_darwin_arm64.zip
 ```
 
 Publish a release by verifying the assets and copying the zips to the S3 prefix that backs the mirror:
 
 ```shell
-version=1.43.2-aisi.1
+version=1.43.2
 repo=<owner>/terraform-provider-anthropic
 gh release download "v${version}" --repo "${repo}" --dir dist
 (cd dist && sha256sum -c "terraform-provider-anthropic_${version}_SHA256SUMS")
@@ -60,13 +60,13 @@ terraform {
   required_providers {
     anthropic = {
       source  = "terraform.aisi.org.uk/aisi/anthropic"
-      version = "1.43.2-aisi.1"
+      version = "1.43.2"
     }
   }
 }
 ```
 
-Pin the exact version. The fork's versions carry a prerelease suffix (`-aisi.N`), and Terraform matches a prerelease version only against an exact constraint, never against `~>` or `>=`.
+Versions are plain semver, `vX.Y.Z`; the address, not the version, tells this build apart from upstream's. Pin the exact version so the constraint and the lock file name the same build.
 
 Run `terraform init` and commit `.terraform.lock.hcl`. From a filesystem mirror the lock file records an `h1:` hash for the platform `init` ran on; add the other platforms your team and CI use so every machine verifies the same artefacts:
 
