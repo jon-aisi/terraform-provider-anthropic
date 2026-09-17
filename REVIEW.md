@@ -6,7 +6,7 @@ re-derived after a rebase. `vendor/` is excluded from every count.
 
 ## What remains
 
-Go, excluding `vendor/`: 16,231 lines (7,071 non-test, 9,160 test); 233 test
+Go, excluding `vendor/`: 17,070 lines (7,264 non-test, 9,806 test); 245 test
 functions, of which 19 are acceptance tests (`TestAcc*`, run only with
 `TF_ACC=1` and live credentials). Upstream `main` had 30,440 lines and 353
 test functions.
@@ -14,14 +14,14 @@ test functions.
 | Package | Non-test | Test | Role |
 |---|---:|---:|---|
 | `main.go` | 40 | 0 | Serves the provider at `registry.terraform.io/ippontech/anthropic`. |
-| `internal/provider` | 514 | 979 | Schema, credential resolution, client construction. `provider.go` (upstream, edited), `federation.go` and `base_url.go` (fork). |
+| `internal/provider` | 643 | 1,450 | Schema, credential resolution, client construction. `provider.go` (upstream, edited); `federation.go`, `base_url.go` and `httpclient.go` (fork). |
 | `internal/providerdata` | 34 | 0 | Struct handed to every resource: `AdminClient` (Admin API key) and `OAuthClient` (bearer). |
-| `internal/admin` | 305 | 782 | Hand-rolled HTTP client for `/v1/organizations/workspaces*` with retries. Used only by `workspaces`. |
-| `internal/errors` | 74 | 227 | Nil-client guards that turn a missing credential into a diagnostic. |
+| `internal/admin` | 338 | 861 | Hand-rolled HTTP client for `/v1/organizations/workspaces*` with retries. Used only by `workspaces`. |
+| `internal/errors` | 105 | 323 | Nil-client guards that turn a missing credential into a diagnostic; `Detail` caps the response body an SDK error prints. |
 | `internal/tfvalue` | 32 | 28 | `""`/zero-time to null helpers. |
 | `internal/services/federation` | 3,565 | 4,507 | `anthropic_federation_issuer`, `_rule`, `_rule_workspace` resources; `federation_issuer(s)`, `federation_rule(s)`, `federation_rule_workspaces` data sources. SDK client. |
 | `internal/services/serviceaccounts` | 1,311 | 2,113 | `anthropic_service_account`, `_service_account_workspace` resources; `service_account(s)`, `service_account_workspaces` data sources. SDK client. |
-| `internal/services/workspaces` | 946 | 524 | `anthropic_workspace` resource; `workspace`, `workspaces` data sources. Admin client. `workspacetest.go` is test scaffolding compiled into the package. |
+| `internal/services/workspaces` | 946 | 524 | `anthropic_workspace` resource; `workspace`, `workspaces` data sources. Admin client. `workspacetest.go` is test scaffolding compiled into the package (auth/transport review finding 7); it moves to a `_test.go` file on the resources branch, `aisi/fix-resources`, not here. |
 | `internal/acctest` | 47 | 0 | Acceptance-test provider factory and env pre-checks. `TerraformTestsWorkspaceID` is upstream's own workspace ID (see flags). |
 | `internal/admintest` | 23 | 0 | Builds an `admin.Client` against an httptest server. |
 | `internal/wifprobetest` | 167 | 0 | Harness for the opt-in read-after-write staleness probe (`TestAccWIFStalenessProbe`, live writes; needs `TF_ACC=1`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_WIF_STALENESS_PROBE=1`). |
@@ -34,24 +34,56 @@ source tests read the live API and are excluded from CI), `hack/trim-upstream.sh
 
 ## Network calls
 
-Only two files outside tests import `net/http`: `internal/admin/admin_client.go`
-and `internal/provider/provider.go` (the `httpClient` test hook). Everything
-else goes through the Anthropic Go SDK. All requests target the single origin
-resolved by `internal/provider/base_url.go` (`base_url` attribute, else
-`ANTHROPIC_BASE_URL`, else `https://api.anthropic.com`; https only, no query,
-fragment or user info; trailing slash trimmed).
+Outside tests, `net/http` is imported by `internal/admin/admin_client.go`,
+`internal/provider/httpclient.go` (the one client every request leaves
+through) and `internal/provider/provider.go` (which hands it to both API
+clients). Everything else goes through the Anthropic Go SDK. All requests
+target the single origin resolved by `internal/provider/base_url.go`
+(`base_url` attribute, else `ANTHROPIC_BASE_URL`, else
+`https://api.anthropic.com`; https only, no query, fragment or user info;
+trailing slash trimmed). Any other origin is announced by the `Non-default API
+Destination` warning, naming the host and whether the argument or the
+environment set it.
+
+### HTTP client (`internal/provider/httpclient.go`)
+
+`newHTTPClient` builds the `*http.Client` the admin client, the SDK client and
+the SDK's federation token exchange all use:
+
+- `http.DefaultTransport` cloned (proxy from the environment, dial timeouts,
+  HTTP/2), with `ResponseHeaderTimeout` 30 s and TLS 1.2 minimum;
+  `http.Client.Timeout` 60 s.
+- `CheckRedirect` returns `http.ErrUseLastResponse`: no redirect is followed.
+  net/http would otherwise follow up to ten, https to http included, forward
+  `x-api-key` and `anthropic-beta` to any host (only `Authorization`, `Cookie`
+  and `Proxy-*` are dropped on a cross-host hop, and kept for a subdomain) and
+  replay the body on a 307/308, which for the exchange is the identity token.
+  The 3xx surfaces as an error naming the destination: `admin.APIError`
+  `refused to follow the redirect to "<Location>"` (not retried), the SDK
+  middleware `refuseRedirect` (`METHOD "URL": refused to follow the N redirect
+  to "<Location>"`), or an `OAuthTokenError` with the 3xx status from the
+  exchange.
+- Tests: `httpClientSettings` lets a test trust the httptest certificate and
+  shorten the timeouts, so the production client is what runs;
+  `TestHTTPClientRefusesRedirects` sends a 307 to a second TLS server through
+  all three paths and requires it to see nothing
+  (`TestStockClientFollowsTheRedirect` is the control),
+  `TestHTTPClientTimesOutOnAStalledServer` covers both clients stalling before
+  and after the status line, `TestNewHTTPClientProductionSettings` pins the
+  values.
 
 ### Admin client (`internal/admin/admin_client.go`)
 
-- URL: `c.BaseURL + path` (`DoRequest`, line 104). Paths are literals in
+- URL: `c.BaseURL + path` (`DoRequest`, line 119). Paths are literals in
   `internal/services/workspaces` plus an encoded query string
   (`workspaces_data_source.go:170`).
 - Headers: `x-api-key: <admin_api_key>`, `anthropic-version: 2023-06-01`,
-  `content-type: application/json` when there is a body (lines 111-115).
-- Transport: `http.Client{Timeout: 60s}`; the provider swaps in its test hook
-  client when set.
+  `content-type: application/json` when there is a body (lines 135-138).
+- Transport: the shared client above, passed to `admin.NewClient`; the
+  package has no default of its own.
 - Retries: up to 2 with exponential backoff and jitter. Idempotent methods
-  retry on connection error, 408, 409, 429, 5xx; POST retries only on 429. A
+  retry on connection error, 408, 409, 429, 5xx; POST retries only on 429; a
+  3xx is never retried. A
   server `x-should-retry: true/false` header overrides both rules;
   `retry-after-ms` / `retry-after` are honoured up to 60 s (`shouldRetry`,
   `retryDelay`, `parseRetryAfter`).
@@ -70,6 +102,13 @@ credential (`provider.go` `newSDKClient`; pinned by
 `TestConfigureOAuthClientCarriesOnlyTheBearer` and
 `TestConfigureIgnoresTheAmbientProfile`).
 
+The same `newSDKClient` sets `option.WithHTTPClient` to the shared client,
+`option.WithMiddleware(refuseRedirect)` and `option.WithMaxRetries(0)`. The
+SDK would otherwise retry any request, POST included, on a connection error,
+408, 409, 429 or 5xx; every WIF create is a POST, and a replay after a
+committed write leaves an untracked issuer, rule or service account behind.
+One attempt per request, pinned by `TestSDKClientDoesNotRetry`.
+
 ### SDK client, federation (`identity_token_file` and friends)
 
 `internal/provider/federation.go` `requestOption` returns
@@ -87,6 +126,12 @@ credential (`provider.go` `newSDKClient`; pinned by
   `identity_token` is returned unchanged). Assertions over 16 KiB and
   responses over 1 MiB are rejected. The SDK refuses non-https token
   endpoints except loopback; the provider refuses all non-https before that.
+  The exchange runs through the shared HTTP client (`option.WithHTTPClient`
+  precedes the federation option), so a 3xx at the token endpoint fails the
+  exchange rather than replaying the assertion elsewhere. The endpoint is
+  always `scheme://host/v1/oauth/token`: a path in `base_url` is dropped by
+  the SDK and `option.FederationOptions` has no field for it, so Configure
+  warns (`Base URL Path Ignored By The Token Exchange`).
 - Response: `access_token`, optional `token_type` (must be Bearer),
   `expires_in`. Cached in memory per client; refreshed in the background when
   under 120 s remain (5 s backoff between failed attempts), synchronously
@@ -143,8 +188,8 @@ consistency waits: bounded polling with `time.After(interval)` (lines 555,
 
 | What | Where | How |
 |---|---|---|
-| `admin_api_key`, `auth_token` | `provider.go` `Configure` (139-140) | `req.Config.Get`, else `os.Getenv(ANTHROPIC_ADMIN_API_KEY / ANTHROPIC_AUTH_TOKEN)`. Unknown config values count as unset. |
-| `identity_token`, `identity_token_file`, `federation_rule_id`, `organization_id`, `service_account_id`, `workspace_id` | `federation.go` `resolveFederation` | Same rule, env names `ANTHROPIC_IDENTITY_TOKEN[_FILE]`, `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`, `ANTHROPIC_WORKSPACE_ID`. `validate` does `os.Stat` on the file. |
+| `admin_api_key`, `auth_token` | `provider.go` `Configure` (140-141) | `req.Config.Get`, else `os.Getenv(ANTHROPIC_ADMIN_API_KEY / ANTHROPIC_AUTH_TOKEN)`. Unknown config values count as unset. |
+| `identity_token`, `identity_token_file`, `federation_rule_id`, `organization_id`, `service_account_id`, `workspace_id` | `federation.go` `resolveFederation` | Same rule, env names `ANTHROPIC_IDENTITY_TOKEN[_FILE]`, `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`, `ANTHROPIC_WORKSPACE_ID`. `validate` reads the file and rejects a read error or an empty file. |
 | Identity token contents | SDK `auth.IdentityTokenFile.GetIdentityToken` | `os.ReadFile` on every exchange, trimmed, empty is an error. |
 | `base_url` | `base_url.go` | Config, else `ANTHROPIC_BASE_URL`. Not a credential, but the destination of every credential. |
 
@@ -192,19 +237,28 @@ added without a decision.
 
 - `Configure` returns diagnostics: `Missing Credentials`, `Invalid Workload
   Identity Federation Configuration` (attributed to the attribute when it came
-  from config, naming the env var otherwise), `Invalid Base URL`, and the
-  `Workload Identity Federation Settings Ignored` warning.
+  from config, naming the env var otherwise), `Invalid Base URL`, and three
+  warnings: `Workload Identity Federation Settings Ignored`, `Non-default API
+  Destination` (any base URL but the production one, naming the host and
+  whether the argument or `ANTHROPIC_BASE_URL` set it) and `Base URL Path
+  Ignored By The Token Exchange` (federation with a path in the base URL).
 - Each resource and data source `Configure` runs a guard from
   `internal/errors`: `Missing OAuth Token` (names `auth_token`, federation and
   says an Admin API key is not accepted) or `Missing Admin API Key`. This is
   how a configuration with only `admin_api_key` and federation resources
   fails, at plan time, before any request.
-- API failures become `resp.Diagnostics.AddError(<summary>, err.Error())`.
-  For the SDK, `anthropic.Error.Error()` is `METHOD "URL": STATUS text
-  (Request-ID: ...) <raw JSON response body>`; for the admin client,
-  `APIError` is `API error (STATUS type): message`, where `message` is the
-  API's `error.message`, or the raw body when it is not JSON. Response bodies
-  therefore reach Terraform output and CI logs. Federation exchange failures
+- API failures become `resp.Diagnostics.AddError(<summary>, "...: " + err)`
+  in the services. For the SDK, `anthropic.Error.Error()` is `METHOD "URL":
+  STATUS text (Request-ID: ...) <raw JSON response body>`; `errors.Detail(err)`
+  returns the same text with the body capped at 512 bytes
+  (`admin.MaxErrorBodyBytes`, `admin.TruncateBody`) and is what those sites
+  should pass instead of `err`; adopting it changes `internal/services` and
+  belongs to the resources branch. For the admin client, `APIError` is
+  `API error (STATUS type): message`, where `message` is the API's
+  `error.message`, or the raw body when it is not JSON, either capped at 512
+  bytes when the error is built; a 3xx reads `refused to follow the redirect
+  to "<Location>"`. Until the services call `errors.Detail`, an SDK error's
+  body still reaches Terraform output whole. Federation exchange failures
   surface as `failed to get credentials token: oauth token request failed
   (status N); request id ...; <error>: <error_description>` with the body
   redacted by the SDK, plus a hint on 401.
@@ -249,16 +303,18 @@ templates.
 
 Commits, in order: trim; federation auth (and `api_key` removal); `base_url`;
 vendoring and CI; review docs; vendored files the inherited `.gitignore`
-dropped; dependency bumps past govulncheck findings.
+dropped; dependency bumps past govulncheck findings; then the transport fixes
+listed under Findings addressed.
 
 ## Flags for the human review
 
 Things in upstream, the SDK or this fork worth a deliberate look. None is a
 known defect.
 
-1. **Response bodies in diagnostics.** Both error types echo the API response
-   body (see Errors). Harmless for Anthropic's error envelopes; anything
-   sitting at `base_url` could put arbitrary text into Terraform output.
+1. **Response bodies in diagnostics.** Capped at 512 bytes in the admin
+   client's `APIError`; `errors.Detail` applies the same cap to SDK errors
+   but the services still pass `err` directly (see Errors), so that half
+   lands with the resources branch.
 2. **Server-driven POST replay.** `admin.shouldRetry` replays a create when
    the server answers `x-should-retry: true`, whatever the status. A hostile
    or buggy endpoint could induce duplicate workspaces. Only the admin client;
@@ -269,11 +325,12 @@ known defect.
    base URL and a workspace header. Disabled with
    `option.WithoutEnvironmentDefaults()` and pinned by tests; any new client
    construction must keep it.
-4. **`identity_token` inline and single-use `jti`.** Documented limitation:
-   the provider can re-read a file but cannot fetch a new identity token, so
-   with `check_jti` on the issuer a re-exchange fails once the access token
-   expires. Set the bootstrap rule's `token_lifetime_seconds` to cover the
-   run.
+4. **Single-use `jti`.** Every Terraform command is a new provider process
+   and a new exchange, so with `check_jti` on the issuer `plan` then `apply`
+   on one token file fails at the apply. `docs/index.md` says so, shows the
+   CI job refreshing the token before each command (the recommendation) and
+   names `check_jti = false` on the bootstrap issuer as the alternative. An
+   inline `identity_token` has no refresh path at all.
 5. **Provider address unchanged.** `main.go` serves
    `registry.terraform.io/ippontech/anthropic` and examples pin that source.
    Publishing under another namespace or mirror needs that string changed,
@@ -304,3 +361,18 @@ known defect.
     (`oauth-2025-04-20`, `oidc-federation-2026-04-01`); a server-side change
     to those would surface as 4xx errors, not silently.
 11. **Trace logging not verified.** See Credentials / Logged.
+
+## Findings addressed
+
+From the auth and transport review of `a691c88` (findings by its numbering),
+on branch `aisi/fix-transport`:
+
+| Finding | Commit | Change |
+|---|---|---|
+| 1 redirects followed, 4 no SDK timeout | `bc342f5` | One `http.Client` for the admin client, the SDK and the token exchange: redirects refused, 60 s timeout, 30 s response-header timeout, TLS 1.2 minimum. |
+| 2 retried creates | `d211322` | `option.WithMaxRetries(0)` on the SDK client. |
+| 3 `jti` re-exchange | `eb84e05` | Documented; the CI example refreshes the token before each Terraform command. |
+| 5 destination set silently | `3332ab5` | `Non-default API Destination` warning. |
+| 6 raw bodies in diagnostics | `c7fb7f2` | 512-byte cap in `admin.APIError`; `errors.Detail` for SDK errors, for the services to adopt. |
+| 7 test scaffolding in the binary | none here | `workspacetest.go` moves on `aisi/fix-resources`. |
+| 8 info items | `0ab8cec` | Token file read at Configure; warning for a base URL path with federation; `TF_LOG_SDK_PROTO_DATA_DIR` note. |
