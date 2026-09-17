@@ -63,7 +63,7 @@ Once the bootstrap rule of [section 2](#2-the-once-per-organization-bootstrap) e
 
 The three IDs are those of the bootstrap rule, your organization and the rule's target service account. Leave `ANTHROPIC_AUTH_TOKEN` unset: a static token takes precedence over federation (the provider warns when both are set). The same setup works from any platform that issues OIDC tokens (on GitLab CI the token is requested through `id_tokens`, see [section 4](#4-how-the-workload-consumes-the-rule)).
 
-~> **Note**: The identity token file holds one JWT, and GitHub's carries a single-use `jti`. The provider re-reads the file before each exchange, but it cannot request a new GitHub token, so with `check_jti` enabled on the issuer a re-exchange fails once the access token expires. Give the bootstrap rule a `token_lifetime_seconds` that covers the Terraform run, or run the request step again before each Terraform command.
+~> **Note**: The identity token file holds one JWT, and GitHub's carries a single-use `jti`. Every Terraform command (`plan`, `apply`, `import`, ...) is a new provider process and a new exchange, and the issuer refuses a second exchange of the same token by default (`check_jti = true`): `plan` then `apply` on one token fails at the apply. Either run the request step again before each Terraform command, as the CI example on the provider page does (the recommendation), or set `check_jti = false` on the bootstrap issuer and accept that the token can be replayed for its lifetime. Within one process the access token is cached and re-exchanged only as it nears expiry, presenting whatever the file holds at that moment, so give the bootstrap rule a `token_lifetime_seconds` that covers the longest apply.
 
 ## 2. The once-per-organization bootstrap
 
