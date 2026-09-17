@@ -201,8 +201,9 @@ func (r *FederationRuleResource) Schema(_ context.Context, _ resource.SchemaRequ
 				MarkdownDescription: "Optional free-text description.",
 			},
 			"workspace_id": schema.StringAttribute{
-				Optional:            true,
-				MarkdownDescription: "Tagged ID of the workspace to enable this rule for. Exactly one of `workspace_id` or `applies_to_all_workspaces = true` must be set.",
+				Optional: true,
+				MarkdownDescription: "Tagged ID of the workspace to enable this rule for. Exactly one of `workspace_id` or `applies_to_all_workspaces = true` must be set. " +
+					"Sent to the API only when it changes; it cannot be changed while the rule has `anthropic_federation_rule_workspace` enablements (the API rejects that with a 400), remove those first.",
 			},
 			"applies_to_all_workspaces": schema.BoolAttribute{
 				Optional: true,
@@ -576,74 +577,10 @@ func (r *FederationRuleResource) Update(ctx context.Context, req resource.Update
 		return
 	}
 
-	matchParam, diags := buildMatchParam(ctx, plan.Match)
+	params, diags := buildFederationRuleUpdateParams(ctx, plan, state)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
-	}
-
-	targetParam, diags := buildTargetParam(ctx, plan.Target)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// match and target are replaced as whole objects by the update API, and
-	// both are Required attributes in this schema, so they are always present
-	// in the plan and always re-sent.
-	params := anthropic.BetaOrganizationFederationRuleUpdateParams{
-		Match:      matchParam,
-		Name:       param.NewOpt(plan.Name.ValueString()),
-		OAuthScope: param.NewOpt(plan.OAuthScope.ValueString()),
-		Target:     targetParam,
-	}
-
-	// description is nullable server-side: send the desired value, or an
-	// explicit null to clear it (omitting it would leave the old value).
-	if plan.Description.IsUnknown() {
-		// Not expected for a non-computed optional attribute; leave omitted.
-	} else if plan.Description.IsNull() {
-		params.Description = param.Null[string]()
-	} else {
-		params.Description = param.NewOpt(plan.Description.ValueString())
-	}
-
-	if !plan.TokenLifetimeSeconds.IsNull() && !plan.TokenLifetimeSeconds.IsUnknown() {
-		params.TokenLifetimeSeconds = param.NewOpt(plan.TokenLifetimeSeconds.ValueInt64())
-	}
-
-	if !plan.WorkspaceID.IsNull() && !plan.WorkspaceID.IsUnknown() {
-		params.WorkspaceID = param.NewOpt(plan.WorkspaceID.ValueString())
-	}
-
-	// applies_to_all_workspaces is always resolved explicitly to true or
-	// false. The schema's static false default means an attribute removed
-	// from config plans as false (not null, and not the carried-forward
-	// prior state), so the first case sends the explicit false the API needs
-	// when a rule switches back from all-workspaces to a single workspace
-	// binding — omitting the field would leave the server's true in place.
-	// The second case is a safety net for an Unknown plan value (unresolved
-	// reference) when the prior state was true.
-	switch {
-	case !plan.AppliesToAllWorkspaces.IsNull() && !plan.AppliesToAllWorkspaces.IsUnknown():
-		params.AppliesToAllWorkspaces = param.NewOpt(plan.AppliesToAllWorkspaces.ValueBool())
-	case !state.AppliesToAllWorkspaces.IsNull() && state.AppliesToAllWorkspaces.ValueBool():
-		params.AppliesToAllWorkspaces = param.NewOpt(false)
-	}
-
-	// attributes: replace-whole-value semantics (send null to clear). Only
-	// sent when changed, since the API rejects any non-empty value today.
-	if !plan.Attributes.Equal(state.Attributes) {
-		if plan.Attributes.IsNull() || plan.Attributes.IsUnknown() {
-			params.SetExtraFields(map[string]any{"attributes": nil})
-		} else {
-			var attrsMap map[string]string
-			resp.Diagnostics.Append(plan.Attributes.ElementsAs(ctx, &attrsMap, false)...)
-			if resp.Diagnostics.HasError() {
-				return
-			}
-			params.Attributes = attrsMap
-		}
 	}
 
 	rule, err := r.client.Beta.Organization.Federation.Rules.Update(ctx, state.ID.ValueString(), params)
@@ -739,6 +676,130 @@ func buildTargetParam(ctx context.Context, targetObj types.Object) (anthropic.Be
 	return anthropic.BetaServiceAccountTargetParam{
 		ServiceAccountID: t.ServiceAccountID.ValueString(),
 	}, diags
+}
+
+// buildFederationRuleUpdateParams builds the update body from the plan and
+// the prior state. It is a separate function so the body can be asserted on
+// the wire in unit tests.
+func buildFederationRuleUpdateParams(ctx context.Context, plan, state FederationRuleResourceModel) (anthropic.BetaOrganizationFederationRuleUpdateParams, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	matchParam, d := buildMatchParam(ctx, plan.Match)
+	diags.Append(d...)
+	if diags.HasError() {
+		return anthropic.BetaOrganizationFederationRuleUpdateParams{}, diags
+	}
+
+	targetParam, d := buildTargetParam(ctx, plan.Target)
+	diags.Append(d...)
+	if diags.HasError() {
+		return anthropic.BetaOrganizationFederationRuleUpdateParams{}, diags
+	}
+
+	// match and target are replaced as whole objects by the update API, and
+	// both are Required attributes in this schema, so they are always present
+	// in the plan and always re-sent.
+	params := anthropic.BetaOrganizationFederationRuleUpdateParams{
+		Match:      matchParam,
+		Name:       param.NewOpt(plan.Name.ValueString()),
+		OAuthScope: param.NewOpt(plan.OAuthScope.ValueString()),
+		Target:     targetParam,
+	}
+
+	// description is nullable server-side: send the desired value, or an
+	// explicit null to clear it (omitting it would leave the old value).
+	if plan.Description.IsUnknown() {
+		// Not expected for a non-computed optional attribute; leave omitted.
+	} else if plan.Description.IsNull() {
+		params.Description = param.Null[string]()
+	} else {
+		params.Description = param.NewOpt(plan.Description.ValueString())
+	}
+
+	if !plan.TokenLifetimeSeconds.IsNull() && !plan.TokenLifetimeSeconds.IsUnknown() {
+		params.TokenLifetimeSeconds = param.NewOpt(plan.TokenLifetimeSeconds.ValueInt64())
+	}
+
+	// workspace_id is sent only when it changes. The API rejects the field
+	// with a 400 when the rule is enabled for more than one workspace
+	// (anthropic_federation_rule_workspace), so resending an unchanged value
+	// would block every other update to such a rule.
+	switch {
+	case plan.WorkspaceID.IsUnknown() || plan.WorkspaceID.Equal(state.WorkspaceID):
+		// Omitted: the API keeps the current binding.
+	case plan.WorkspaceID.IsNull():
+		// Cleared, which the config validator only allows together with
+		// applies_to_all_workspaces = true. Without the explicit null the
+		// legacy binding stays server-side, Read restores it into state and
+		// the null in configuration is a permanent diff.
+		params.WorkspaceID = param.Null[string]()
+	default:
+		if hasExtraWorkspaceEnablements(ctx, state) {
+			diags.AddAttributeError(
+				path.Root("workspace_id"),
+				"Cannot change workspace_id while the rule has additional workspace enablements",
+				fmt.Sprintf("Federation rule %s is enabled for %v; the API rejects a workspace_id change on a rule enabled for more than one workspace. "+
+					"Remove the anthropic_federation_rule_workspace resources for this rule first, or re-create the rule.",
+					state.ID.ValueString(), state.WorkspaceIDs.Elements()),
+			)
+			return anthropic.BetaOrganizationFederationRuleUpdateParams{}, diags
+		}
+		params.WorkspaceID = param.NewOpt(plan.WorkspaceID.ValueString())
+	}
+
+	// applies_to_all_workspaces is always resolved explicitly to true or
+	// false. The schema's static false default means an attribute removed
+	// from config plans as false (not null, and not the carried-forward
+	// prior state), so the first case sends the explicit false the API needs
+	// when a rule switches back from all-workspaces to a single workspace
+	// binding; omitting the field would leave the server's true in place.
+	// The second case is a safety net for an Unknown plan value (unresolved
+	// reference) when the prior state was true.
+	switch {
+	case !plan.AppliesToAllWorkspaces.IsNull() && !plan.AppliesToAllWorkspaces.IsUnknown():
+		params.AppliesToAllWorkspaces = param.NewOpt(plan.AppliesToAllWorkspaces.ValueBool())
+	case !state.AppliesToAllWorkspaces.IsNull() && state.AppliesToAllWorkspaces.ValueBool():
+		params.AppliesToAllWorkspaces = param.NewOpt(false)
+	}
+
+	// attributes: replace-whole-value semantics (send null to clear). Only
+	// sent when changed, since the API rejects any non-empty value today.
+	if !plan.Attributes.Equal(state.Attributes) {
+		if plan.Attributes.IsNull() || plan.Attributes.IsUnknown() {
+			params.SetExtraFields(map[string]any{"attributes": nil})
+		} else {
+			var attrsMap map[string]string
+			diags.Append(plan.Attributes.ElementsAs(ctx, &attrsMap, false)...)
+			if diags.HasError() {
+				return anthropic.BetaOrganizationFederationRuleUpdateParams{}, diags
+			}
+			params.Attributes = attrsMap
+		}
+	}
+
+	return params, diags
+}
+
+// hasExtraWorkspaceEnablements reports whether the rule in state is enabled
+// for a workspace other than its own workspace_id binding, which happens
+// through anthropic_federation_rule_workspace. It is false when the rule
+// applies to all workspaces: workspace_ids then reflects that mode, not
+// per-workspace enablements, and switching back to one workspace has to send
+// workspace_id.
+func hasExtraWorkspaceEnablements(ctx context.Context, state FederationRuleResourceModel) bool {
+	if state.AppliesToAllWorkspaces.ValueBool() || state.WorkspaceIDs.IsNull() || state.WorkspaceIDs.IsUnknown() {
+		return false
+	}
+	var ids []string
+	if state.WorkspaceIDs.ElementsAs(ctx, &ids, false).HasError() {
+		return false
+	}
+	for _, id := range ids {
+		if id != state.WorkspaceID.ValueString() {
+			return true
+		}
+	}
+	return false
 }
 
 // mapMatchResponseToObject maps a BetaFederationRuleMatch response to a types.Object.
