@@ -6,11 +6,9 @@ package serviceaccounts_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	acctest "github.com/ippontech/terraform-provider-anthropic/internal/acctest"
 )
@@ -28,10 +26,11 @@ import (
 func TestAccServiceAccountDataSource(t *testing.T) {
 	acctest.PreCheckOAuth(t)
 
-	client := anthropic.NewClient(option.WithAuthToken(os.Getenv("ANTHROPIC_AUTH_TOKEN")))
+	client := acctest.NewOAuthClient()
+	name := acctest.RandomName("svc")
 
 	sa, err := client.Beta.Organization.ServiceAccounts.New(context.Background(), anthropic.BetaOrganizationServiceAccountNewParams{
-		Name: "tf-acc-service-account-ds",
+		Name: name,
 	})
 	if err != nil {
 		t.Fatalf("failed to create fixture service account: %s", err)
@@ -55,7 +54,7 @@ data "anthropic_service_account" "test" {
 				Config: config,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data.anthropic_service_account.test", "id", sa.ID),
-					resource.TestCheckResourceAttr("data.anthropic_service_account.test", "name", "tf-acc-service-account-ds"),
+					resource.TestCheckResourceAttr("data.anthropic_service_account.test", "name", name),
 					resource.TestCheckResourceAttr("data.anthropic_service_account.test", "organization_role", "developer"),
 					resource.TestCheckResourceAttrSet("data.anthropic_service_account.test", "created_at"),
 					resource.TestCheckResourceAttrSet("data.anthropic_service_account.test", "created_by_actor_id"),

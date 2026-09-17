@@ -42,13 +42,13 @@ func TestAccWIFStalenessProbe(t *testing.T) {
 
 	ctx := context.Background()
 	client := wifprobetest.NewClient()
-	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	testWorkspaceID := acctest.TestWorkspaceID(t)
 
 	issuer, err := client.Beta.Organization.Federation.Issuers.New(ctx, anthropic.BetaOrganizationFederationIssuerNewParams{
-		IssuerURL: fmt.Sprintf("https://tf-probe-%s.example.com", suffix),
-		Name:      fmt.Sprintf("tf-probe-issuer-%s", suffix),
+		IssuerURL: fmt.Sprintf("https://%s.example.com", acctest.RandomName("idp")),
+		Name:      acctest.RandomName("probe-issuer"),
 		JWKS: anthropic.BetaOrganizationFederationIssuerNewParamsJWKSUnion{
-			OfInline: &anthropic.BetaJWKSInlineParam{Keys: []map[string]any{testFixtureRSAJWK}},
+			OfInline: &anthropic.BetaJWKSInlineParam{Keys: []map[string]any{acctest.FreshRSAJWK(t)}},
 		},
 	})
 	if err != nil {
@@ -61,7 +61,7 @@ func TestAccWIFStalenessProbe(t *testing.T) {
 	})
 
 	account, err := client.Beta.Organization.ServiceAccounts.New(ctx, anthropic.BetaOrganizationServiceAccountNewParams{
-		Name: fmt.Sprintf("tf-probe-svc-%s", suffix),
+		Name: acctest.RandomName("probe-svc"),
 	})
 	if err != nil {
 		wifprobetest.Fatal(t, "create service account", err)
@@ -79,7 +79,7 @@ func TestAccWIFStalenessProbe(t *testing.T) {
 	// 404 from the write can be told apart from an "in use" refusal.
 	probeIssuerUpdate := func(label string, trial int) {
 		res := wifprobetest.Result{Endpoint: label, Trial: trial}
-		want := fmt.Sprintf("tf-probe-issuer-%s-t%d", suffix, trial)
+		want := fmt.Sprintf("%s-t%d", issuer.Name, trial)
 		writtenAt := wifprobetest.Write(t, &res, func() (time.Time, error) {
 			updated, err := client.Beta.Organization.Federation.Issuers.Update(ctx, issuer.ID, anthropic.BetaOrganizationFederationIssuerUpdateParams{
 				Name: param.NewOpt(want),
@@ -104,15 +104,15 @@ func TestAccWIFStalenessProbe(t *testing.T) {
 
 	// The rule is bound to some other workspace at creation time so the
 	// rule-workspace Add below enables a genuinely different one
-	// (acctest.TerraformTestsWorkspaceID) instead of duplicating the
+	// (testWorkspaceID) instead of duplicating the
 	// create-time binding.
-	otherWorkspaceID := findOtherWorkspaceID(t, client, acctest.TerraformTestsWorkspaceID)
+	otherWorkspaceID := findOtherWorkspaceID(t, client, testWorkspaceID)
 	rule, err := client.Beta.Organization.Federation.Rules.New(ctx, anthropic.BetaOrganizationFederationRuleNewParams{
-		Name:       fmt.Sprintf("tf-probe-rule-%s", suffix),
+		Name:       acctest.RandomName("probe-rule"),
 		IssuerID:   issuer.ID,
 		OAuthScope: "workspace:developer",
 		Match: anthropic.BetaFederationRuleMatchParam{
-			SubjectPrefix: param.NewOpt(fmt.Sprintf("repo:my-org/tf-probe-%s:*", suffix)),
+			SubjectPrefix: param.NewOpt(fmt.Sprintf("repo:my-org/%s:*", issuer.Name)),
 		},
 		Target:      anthropic.BetaServiceAccountTargetParam{ServiceAccountID: account.ID},
 		WorkspaceID: param.NewOpt(otherWorkspaceID),
@@ -162,25 +162,25 @@ func TestAccWIFStalenessProbe(t *testing.T) {
 		add := wifprobetest.Result{Endpoint: "federation_rule_workspaces LIST after POST Add", Trial: trial}
 		wifprobetest.Write(t, &add, func() (time.Time, error) {
 			_, err := client.Beta.Organization.Federation.Rules.Workspaces.Add(ctx, rule.ID, anthropic.BetaOrganizationFederationRuleWorkspaceAddParams{
-				WorkspaceID: acctest.TerraformTestsWorkspaceID,
+				WorkspaceID: testWorkspaceID,
 			})
 			return time.Time{}, err
 		})
 		wifprobetest.Read(t, &add, time.Time{}, func() (time.Time, bool, error) {
-			found, err := ruleWorkspaceListed(ctx, client, rule.ID, acctest.TerraformTestsWorkspaceID)
+			found, err := ruleWorkspaceListed(ctx, client, rule.ID, testWorkspaceID)
 			return time.Time{}, found, err
 		})
 		results = append(results, add)
 
 		remove := wifprobetest.Result{Endpoint: "federation_rule_workspaces LIST after DELETE Remove", Trial: trial}
 		wifprobetest.Write(t, &remove, func() (time.Time, error) {
-			_, err := client.Beta.Organization.Federation.Rules.Workspaces.Remove(ctx, acctest.TerraformTestsWorkspaceID, anthropic.BetaOrganizationFederationRuleWorkspaceRemoveParams{
+			_, err := client.Beta.Organization.Federation.Rules.Workspaces.Remove(ctx, testWorkspaceID, anthropic.BetaOrganizationFederationRuleWorkspaceRemoveParams{
 				FederationRuleID: rule.ID,
 			})
 			return time.Time{}, err
 		})
 		wifprobetest.Read(t, &remove, time.Time{}, func() (time.Time, bool, error) {
-			found, err := ruleWorkspaceListed(ctx, client, rule.ID, acctest.TerraformTestsWorkspaceID)
+			found, err := ruleWorkspaceListed(ctx, client, rule.ID, testWorkspaceID)
 			return time.Time{}, !found, err
 		})
 		results = append(results, remove)

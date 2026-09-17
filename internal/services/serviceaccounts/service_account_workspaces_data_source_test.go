@@ -6,14 +6,11 @@ package serviceaccounts_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
-	"time"
 
 	acctest "github.com/ippontech/terraform-provider-anthropic/internal/acctest"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
@@ -36,8 +33,8 @@ import (
 // Named distinctly from any equivalent helper a sibling WIF branch (e.g. the
 // anthropic_service_account_workspace resource) might add to this same
 // external test package, so the two can coexist once both branches merge.
-func newTestOAuthClientForDataSource() anthropic.Client {
-	return anthropic.NewClient(option.WithAuthToken(os.Getenv("ANTHROPIC_AUTH_TOKEN")))
+func newTestOAuthClientForDataSource() *anthropic.Client {
+	return acctest.NewOAuthClient()
 }
 
 // setupServiceAccountFixtureForDataSource creates the service account this
@@ -49,10 +46,9 @@ func setupServiceAccountFixtureForDataSource(t *testing.T) string {
 
 	client := newTestOAuthClientForDataSource()
 	ctx := context.Background()
-	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
 	account, err := client.Beta.Organization.ServiceAccounts.New(ctx, anthropic.BetaOrganizationServiceAccountNewParams{
-		Name: fmt.Sprintf("tf-acc-svcws-%s", suffix),
+		Name: acctest.RandomName("svc"),
 	})
 	if err != nil {
 		t.Fatalf("failed to create test service account: %s", err)

@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	acctest "github.com/ippontech/terraform-provider-anthropic/internal/acctest"
 
@@ -43,10 +42,9 @@ func setupServiceAccountFixture(t *testing.T) string {
 
 	client := newTestOAuthClient()
 	ctx := context.Background()
-	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
 	account, err := client.Beta.Organization.ServiceAccounts.New(ctx, anthropic.BetaOrganizationServiceAccountNewParams{
-		Name: fmt.Sprintf("tf-acc-svc-%s", suffix),
+		Name: acctest.RandomName("svc"),
 	})
 	if err != nil {
 		t.Fatalf("failed to create test service account: %s", err)
@@ -102,6 +100,7 @@ resource "anthropic_service_account_workspace" "test" {
 
 func TestAccServiceAccountWorkspaceResource_basic(t *testing.T) {
 	serviceAccountID := setupServiceAccountFixture(t)
+	workspaceID := acctest.TestWorkspaceID(t)
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheckOAuth(t) },
@@ -110,11 +109,11 @@ func TestAccServiceAccountWorkspaceResource_basic(t *testing.T) {
 		Steps: []resource.TestStep{
 			// Create and Read
 			{
-				Config: testAccServiceAccountWorkspaceConfig(serviceAccountID, acctest.TerraformTestsWorkspaceID, "workspace_developer"),
+				Config: testAccServiceAccountWorkspaceConfig(serviceAccountID, workspaceID, "workspace_developer"),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("anthropic_service_account_workspace.test", "id"),
 					resource.TestCheckResourceAttr("anthropic_service_account_workspace.test", "service_account_id", serviceAccountID),
-					resource.TestCheckResourceAttr("anthropic_service_account_workspace.test", "workspace_id", acctest.TerraformTestsWorkspaceID),
+					resource.TestCheckResourceAttr("anthropic_service_account_workspace.test", "workspace_id", workspaceID),
 					resource.TestCheckResourceAttr("anthropic_service_account_workspace.test", "workspace_role", "workspace_developer"),
 					resource.TestCheckResourceAttr("anthropic_service_account_workspace.test", "implicit", "false"),
 					resource.TestCheckResourceAttrSet("anthropic_service_account_workspace.test", "created_by_actor_id"),
@@ -136,6 +135,7 @@ func TestAccServiceAccountWorkspaceResource_basic(t *testing.T) {
 // new role and then remove the membership.
 func TestAccServiceAccountWorkspaceResource_roleChangeUpdatesInPlace(t *testing.T) {
 	serviceAccountID := setupServiceAccountFixture(t)
+	workspaceID := acctest.TestWorkspaceID(t)
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheckOAuth(t) },
@@ -143,11 +143,11 @@ func TestAccServiceAccountWorkspaceResource_roleChangeUpdatesInPlace(t *testing.
 		CheckDestroy:             testAccCheckServiceAccountWorkspaceDestroyed,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccServiceAccountWorkspaceConfig(serviceAccountID, acctest.TerraformTestsWorkspaceID, "workspace_developer"),
+				Config: testAccServiceAccountWorkspaceConfig(serviceAccountID, workspaceID, "workspace_developer"),
 				Check:  resource.TestCheckResourceAttr("anthropic_service_account_workspace.test", "workspace_role", "workspace_developer"),
 			},
 			{
-				Config: testAccServiceAccountWorkspaceConfig(serviceAccountID, acctest.TerraformTestsWorkspaceID, "workspace_admin"),
+				Config: testAccServiceAccountWorkspaceConfig(serviceAccountID, workspaceID, "workspace_admin"),
 				ConfigPlanChecks: resource.ConfigPlanChecks{
 					PreApply: []plancheck.PlanCheck{
 						plancheck.ExpectResourceAction("anthropic_service_account_workspace.test", plancheck.ResourceActionUpdate),

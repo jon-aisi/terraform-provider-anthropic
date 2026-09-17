@@ -6,14 +6,12 @@ package serviceaccounts_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	acctest "github.com/ippontech/terraform-provider-anthropic/internal/acctest"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
@@ -40,8 +38,7 @@ const (
 // permanently in the organization's (archived) service account list.
 
 func newTestOAuthClient() *anthropic.Client {
-	c := anthropic.NewClient(option.WithAuthToken(os.Getenv("ANTHROPIC_AUTH_TOKEN")))
-	return &c
+	return acctest.NewOAuthClient()
 }
 
 func testAccCheckServiceAccountArchived(s *terraform.State) error {
@@ -78,13 +75,25 @@ func awaitServiceAccountArchived(client *anthropic.Client, id string) error {
 	}
 }
 
-const testAccServiceAccountResourceBasicConfig = `
+func testAccServiceAccountResourceConfig(name, description string) string {
+	if description == "" {
+		return fmt.Sprintf(`
 resource "anthropic_service_account" "test" {
-  name = "tf-acc-test-service-account-basic"
+  name = %[1]q
 }
-`
+`, name)
+	}
+	return fmt.Sprintf(`
+resource "anthropic_service_account" "test" {
+  name        = %[1]q
+  description = %[2]q
+}
+`, name, description)
+}
 
 func TestAccServiceAccountResource_basic(t *testing.T) {
+	name := acctest.RandomName("svc")
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheckOAuth(t) },
 		ProtoV6ProviderFactories: acctest.ProtoV6ProviderFactories,
@@ -92,10 +101,10 @@ func TestAccServiceAccountResource_basic(t *testing.T) {
 		Steps: []resource.TestStep{
 			// Create and Read
 			{
-				Config: testAccServiceAccountResourceBasicConfig,
+				Config: testAccServiceAccountResourceConfig(name, ""),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("anthropic_service_account.test", "id"),
-					resource.TestCheckResourceAttr("anthropic_service_account.test", "name", "tf-acc-test-service-account-basic"),
+					resource.TestCheckResourceAttr("anthropic_service_account.test", "name", name),
 					resource.TestCheckResourceAttr("anthropic_service_account.test", "organization_role", "developer"),
 					resource.TestCheckResourceAttrSet("anthropic_service_account.test", "created_at"),
 					resource.TestCheckResourceAttrSet("anthropic_service_account.test", "updated_at"),
@@ -112,37 +121,26 @@ func TestAccServiceAccountResource_basic(t *testing.T) {
 	})
 }
 
-const testAccServiceAccountResourceUpdateConfigV1 = `
-resource "anthropic_service_account" "test" {
-  name        = "tf-acc-test-service-account-update"
-  description = "initial description"
-}
-`
-
-const testAccServiceAccountResourceUpdateConfigV2 = `
-resource "anthropic_service_account" "test" {
-  name = "tf-acc-test-service-account-update"
-}
-`
-
 func TestAccServiceAccountResource_update(t *testing.T) {
+	name := acctest.RandomName("svc")
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheckOAuth(t) },
 		ProtoV6ProviderFactories: acctest.ProtoV6ProviderFactories,
 		CheckDestroy:             testAccCheckServiceAccountArchived,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccServiceAccountResourceUpdateConfigV1,
+				Config: testAccServiceAccountResourceConfig(name, "initial description"),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("anthropic_service_account.test", "name", "tf-acc-test-service-account-update"),
+					resource.TestCheckResourceAttr("anthropic_service_account.test", "name", name),
 					resource.TestCheckResourceAttr("anthropic_service_account.test", "description", "initial description"),
 				),
 			},
 			// description removed from config must clear it server-side (explicit null on update).
 			{
-				Config: testAccServiceAccountResourceUpdateConfigV2,
+				Config: testAccServiceAccountResourceConfig(name, ""),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("anthropic_service_account.test", "name", "tf-acc-test-service-account-update"),
+					resource.TestCheckResourceAttr("anthropic_service_account.test", "name", name),
 					resource.TestCheckNoResourceAttr("anthropic_service_account.test", "description"),
 				),
 			},

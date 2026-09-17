@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	acctest "github.com/ippontech/terraform-provider-anthropic/internal/acctest"
 
@@ -28,8 +27,9 @@ import (
 // workspace_id). This resource manages the *extra* workspaces a rule should
 // also be usable from, so the test binds the rule to some other workspace in
 // the org at creation, then uses anthropic_federation_rule_workspace to
-// additionally enable it for acctest.TerraformTestsWorkspaceID — exercising
-// the resource against a workspace distinct from the rule's own binding.
+// additionally enable it for the ANTHROPIC_TEST_WORKSPACE_ID workspace,
+// exercising the resource against a workspace distinct from the rule's own
+// binding.
 
 // federationRuleWorkspaceTestFixtures holds the out-of-band issuer, service
 // account and federation rule a federation_rule_workspace acceptance test
@@ -44,8 +44,8 @@ type federationRuleWorkspaceTestFixtures struct {
 // findOtherWorkspaceID returns the ID of some non-archived workspace in the
 // org other than exclude. The federation rule this test creates is bound to
 // it at creation time, so the resource under test can enable a genuinely
-// *different* workspace (acctest.TerraformTestsWorkspaceID) without
-// duplicating the rule's own create-time binding.
+// *different* workspace (ANTHROPIC_TEST_WORKSPACE_ID) without duplicating the
+// rule's own create-time binding.
 func findOtherWorkspaceID(t *testing.T, client *anthropic.Client, exclude string) string {
 	t.Helper()
 	ctx := context.Background()
@@ -61,7 +61,7 @@ func findOtherWorkspaceID(t *testing.T, client *anthropic.Client, exclude string
 	if err := pager.Err(); err != nil {
 		t.Fatalf("failed to list workspaces: %s", err)
 	}
-	t.Fatal("no active workspace other than acctest.TerraformTestsWorkspaceID found in the org; this test needs at least two non-archived workspaces")
+	t.Fatalf("no active workspace other than %s found in the org; this test needs at least two non-archived workspaces", exclude)
 	return ""
 }
 
@@ -82,16 +82,15 @@ func setupFederationRuleWorkspaceTestFixtures(t *testing.T) federationRuleWorksp
 
 	client := newTestOAuthClient()
 	ctx := context.Background()
-	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
-	otherWorkspaceID := findOtherWorkspaceID(t, client, acctest.TerraformTestsWorkspaceID)
+	otherWorkspaceID := findOtherWorkspaceID(t, client, acctest.TestWorkspaceID(t))
 
 	issuer, err := client.Beta.Organization.Federation.Issuers.New(ctx, anthropic.BetaOrganizationFederationIssuerNewParams{
-		IssuerURL: fmt.Sprintf("https://tf-acc-test-frw-%s.example.com", suffix),
-		Name:      fmt.Sprintf("tf-acc-issuer-frw-%s", suffix),
+		IssuerURL: fmt.Sprintf("https://%s.example.com", acctest.RandomName("idp")),
+		Name:      acctest.RandomName("issuer"),
 		JWKS: anthropic.BetaOrganizationFederationIssuerNewParamsJWKSUnion{
 			OfInline: &anthropic.BetaJWKSInlineParam{
-				Keys: []map[string]any{testFixtureRSAJWK},
+				Keys: []map[string]any{acctest.FreshRSAJWK(t)},
 			},
 		},
 	})
@@ -100,18 +99,19 @@ func setupFederationRuleWorkspaceTestFixtures(t *testing.T) federationRuleWorksp
 	}
 
 	account, err := client.Beta.Organization.ServiceAccounts.New(ctx, anthropic.BetaOrganizationServiceAccountNewParams{
-		Name: fmt.Sprintf("tf-acc-svc-frw-%s", suffix),
+		Name: acctest.RandomName("svc"),
 	})
 	if err != nil {
 		t.Fatalf("failed to create test service account: %s", err)
 	}
 
+	ruleName := acctest.RandomName("rule")
 	rule, err := client.Beta.Organization.Federation.Rules.New(ctx, anthropic.BetaOrganizationFederationRuleNewParams{
-		Name:       fmt.Sprintf("tf-acc-rule-frw-%s", suffix),
+		Name:       ruleName,
 		IssuerID:   issuer.ID,
 		OAuthScope: "workspace:developer",
 		Match: anthropic.BetaFederationRuleMatchParam{
-			SubjectPrefix: param.NewOpt(fmt.Sprintf("repo:my-org/tf-acc-frw-%s:*", suffix)),
+			SubjectPrefix: param.NewOpt(fmt.Sprintf("repo:my-org/%s:*", ruleName)),
 		},
 		Target: anthropic.BetaServiceAccountTargetParam{
 			ServiceAccountID: account.ID,
@@ -142,9 +142,8 @@ func setupFederationRuleWorkspaceTestFixtures(t *testing.T) federationRuleWorksp
 	}
 }
 
-// testAccCheckFederationRuleWorkspaceRemoved verifies that
-// acctest.TerraformTestsWorkspaceID is no longer among the rule's enabled
-// workspaces (the API has a hard-delete endpoint for this enablement, unlike
+// testAccCheckFederationRuleWorkspaceRemoved verifies that the test
+// workspace is no longer among the rule's enabled workspaces (the API has a hard-delete endpoint for this enablement, unlike
 // most other WIF resources).
 func testAccCheckFederationRuleWorkspaceRemoved(s *terraform.State) error {
 	client := newTestOAuthClient()
@@ -180,6 +179,7 @@ resource "anthropic_federation_rule_workspace" "test" {
 
 func TestAccFederationRuleWorkspaceResource_basic(t *testing.T) {
 	fixtures := setupFederationRuleWorkspaceTestFixtures(t)
+	workspaceID := acctest.TestWorkspaceID(t)
 
 	resource.Test(t, resource.TestCase{
 		// setupFederationRuleWorkspaceTestFixtures already gates on
@@ -192,11 +192,11 @@ func TestAccFederationRuleWorkspaceResource_basic(t *testing.T) {
 		Steps: []resource.TestStep{
 			// Create and Read
 			{
-				Config: testAccFederationRuleWorkspaceConfig(fixtures.FederationRuleID, acctest.TerraformTestsWorkspaceID),
+				Config: testAccFederationRuleWorkspaceConfig(fixtures.FederationRuleID, workspaceID),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("anthropic_federation_rule_workspace.test", "id"),
 					resource.TestCheckResourceAttr("anthropic_federation_rule_workspace.test", "federation_rule_id", fixtures.FederationRuleID),
-					resource.TestCheckResourceAttr("anthropic_federation_rule_workspace.test", "workspace_id", acctest.TerraformTestsWorkspaceID),
+					resource.TestCheckResourceAttr("anthropic_federation_rule_workspace.test", "workspace_id", workspaceID),
 					resource.TestCheckResourceAttrSet("anthropic_federation_rule_workspace.test", "workspace_name"),
 					resource.TestCheckResourceAttrSet("anthropic_federation_rule_workspace.test", "created_at"),
 				),

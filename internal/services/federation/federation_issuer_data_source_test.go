@@ -6,14 +6,11 @@ package federation_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
-	"time"
 
 	acctest "github.com/ippontech/terraform-provider-anthropic/internal/acctest"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
@@ -31,8 +28,8 @@ import (
 // branch). The deterministic mapping coverage — every jwks type, poll_status,
 // 404 — lives in federation_issuer_data_source_internal_test.go.
 
-func newTestFederationIssuerDataSourceClient() anthropic.Client {
-	return anthropic.NewClient(option.WithAuthToken(os.Getenv("ANTHROPIC_AUTH_TOKEN")))
+func newTestFederationIssuerDataSourceClient() *anthropic.Client {
+	return acctest.NewOAuthClient()
 }
 
 // setupFederationIssuerDataSourceFixture creates a federation issuer directly
@@ -44,11 +41,10 @@ func setupFederationIssuerDataSourceFixture(t *testing.T) *anthropic.BetaFederat
 
 	client := newTestFederationIssuerDataSourceClient()
 	ctx := context.Background()
-	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
 	issuer, err := client.Beta.Organization.Federation.Issuers.New(ctx, anthropic.BetaOrganizationFederationIssuerNewParams{
-		IssuerURL: fmt.Sprintf("https://tf-acc-test-%s.example.com", suffix),
-		Name:      fmt.Sprintf("tf-acc-fdis-%s", suffix),
+		IssuerURL: fmt.Sprintf("https://%s.example.com", acctest.RandomName("idp")),
+		Name:      acctest.RandomName("issuer"),
 	})
 	if err != nil {
 		t.Fatalf("failed to create test federation issuer: %s", err)

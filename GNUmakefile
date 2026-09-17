@@ -28,8 +28,18 @@ tidy-check:
 test:
 	go test -v -cover -timeout=120s -parallel=10 ./...
 
+# The TestAcc* functions create and archive objects in the organisation the
+# credential belongs to. They refuse to run unless ANTHROPIC_TEST_ORGANIZATION_ID
+# names that organisation; ANTHROPIC_TEST_WORKSPACE_ID is a workspace in it.
+# See internal/acctest.
 testacc:
 	TF_ACC=1 go test -v -cover -timeout 120m ./...
+
+# Archives every federation rule, issuer and service account named tf-acc-*
+# that an interrupted acceptance run left behind. Same organisation guard as
+# the tests.
+sweep:
+	go test -v -timeout 10m ./internal/services/federation ./internal/services/serviceaccounts -sweep=all
 
 .dev.tfrc:
 	@GOBIN=$$(go env GOBIN); \
@@ -43,4 +53,4 @@ terraform-test: install .dev.tfrc
 	TF_CLI_CONFIG_FILE=$(CURDIR)/.dev.tfrc terraform -chdir=tests init
 	TF_CLI_CONFIG_FILE=$(CURDIR)/.dev.tfrc terraform -chdir=tests test
 
-.PHONY: fmt tidy-check lint test testacc terraform-test build install generate
+.PHONY: fmt tidy-check lint test testacc sweep terraform-test build install generate

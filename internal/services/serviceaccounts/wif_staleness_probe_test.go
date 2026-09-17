@@ -9,6 +9,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
 
+	"github.com/ippontech/terraform-provider-anthropic/internal/acctest"
 	"github.com/ippontech/terraform-provider-anthropic/internal/wifprobetest"
 )
 
@@ -38,10 +39,9 @@ func TestAccWIFStalenessProbe(t *testing.T) {
 
 	ctx := context.Background()
 	client := wifprobetest.NewClient()
-	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
 	account, err := client.Beta.Organization.ServiceAccounts.New(ctx, anthropic.BetaOrganizationServiceAccountNewParams{
-		Name: fmt.Sprintf("tf-probe-svc-%s", suffix),
+		Name: acctest.RandomName("probe-svc"),
 	})
 	if err != nil {
 		wifprobetest.Fatal(t, "create service account", err)

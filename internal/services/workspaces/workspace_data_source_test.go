@@ -11,18 +11,20 @@ import (
 	acctest "github.com/ippontech/terraform-provider-anthropic/internal/acctest"
 )
 
-// Read-only smoke test against the dedicated terraform-tests workspace. The
+// Read-only smoke test against the ANTHROPIC_TEST_WORKSPACE_ID workspace. The
 // pagination/mapping/edge-case logic stays covered by the httptest-based unit
 // tests in package workspaces; this only exercises the live Admin API round-trip.
 func TestAccWorkspaceDataSource(t *testing.T) {
+	workspaceID := acctest.TestWorkspaceID(t)
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheckAdmin(t) },
 		ProtoV6ProviderFactories: acctest.ProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: fmt.Sprintf(`data "anthropic_workspace" "test" { id = %q }`, acctest.TerraformTestsWorkspaceID),
+				Config: fmt.Sprintf(`data "anthropic_workspace" "test" { id = %q }`, workspaceID),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("data.anthropic_workspace.test", "id", acctest.TerraformTestsWorkspaceID),
+					resource.TestCheckResourceAttr("data.anthropic_workspace.test", "id", workspaceID),
 					resource.TestCheckResourceAttrSet("data.anthropic_workspace.test", "name"),
 					resource.TestCheckResourceAttrSet("data.anthropic_workspace.test", "created_at"),
 				),

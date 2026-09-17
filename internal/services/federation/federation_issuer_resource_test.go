@@ -6,13 +6,11 @@ package federation_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	acctest "github.com/ippontech/terraform-provider-anthropic/internal/acctest"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
@@ -22,15 +20,15 @@ import (
 // org:admin token exists in CI (see acctest.PreCheckOAuth), so these run
 // locally only.
 //
-// jwks = {type = "inline", keys = [...]} with a placeholder key is used so
-// nothing is dialed: unlike "discovery" (which requires a publicly reachable
-// HTTPS issuer_url) or "explicit_url" (which fetches the JWKS endpoint on
-// every poll), "inline" keys are taken as-is and never fetched over the
-// network, matching how vault credentials use fabricated secret material.
+// jwks = {type = "inline", keys = [...]} with a key generated for the run is
+// used so nothing is dialed: unlike "discovery" (which requires a publicly
+// reachable HTTPS issuer_url) or "explicit_url" (which fetches the JWKS
+// endpoint on every poll), "inline" keys are taken as-is and never fetched
+// over the network. The private half of the key is discarded, so an issuer a
+// failed run leaves behind trusts nobody.
 
 func newTestOAuthClient() *anthropic.Client {
-	c := anthropic.NewClient(option.WithAuthToken(os.Getenv("ANTHROPIC_AUTH_TOKEN")))
-	return &c
+	return acctest.NewOAuthClient()
 }
 
 // testAccCheckFederationIssuerArchived verifies that every federation issuer
@@ -54,62 +52,39 @@ func testAccCheckFederationIssuerArchived(s *terraform.State) error {
 	return nil
 }
 
-const testAccFederationIssuerInlineConfig = `
+func testAccFederationIssuerInlineConfig(name, issuerURL, keysJSON string) string {
+	return fmt.Sprintf(`
 resource "anthropic_federation_issuer" "test" {
-  name       = "tf-acc-test-issuer"
-  issuer_url = "https://tf-acc-test.example.com"
+  name       = %[1]q
+  issuer_url = %[2]q
 
   jwks = {
     type = "inline"
-    keys = jsonencode([
-      {
-        kty = "RSA"
-        kid = "tf-acc-test-key"
-        n   = "tf-acc-fake-modulus"
-        e   = "AQAB"
-      }
-    ])
+    keys = %[3]q
   }
 
   check_jti                = false
   max_jwt_lifetime_seconds = 900
 }
-`
-
-const testAccFederationIssuerInlineConfigRenamed = `
-resource "anthropic_federation_issuer" "test" {
-  name       = "tf-acc-test-issuer-renamed"
-  issuer_url = "https://tf-acc-test.example.com"
-
-  jwks = {
-    type = "inline"
-    keys = jsonencode([
-      {
-        kty = "RSA"
-        kid = "tf-acc-test-key"
-        n   = "tf-acc-fake-modulus"
-        e   = "AQAB"
-      }
-    ])
-  }
-
-  check_jti                = false
-  max_jwt_lifetime_seconds = 900
+`, name, issuerURL, keysJSON)
 }
-`
 
 func TestAccFederationIssuerResource_inline(t *testing.T) {
+	name := acctest.RandomName("issuer")
+	issuerURL := fmt.Sprintf("https://%s.example.com", acctest.RandomName("idp"))
+	keys := acctest.FreshRSAJWKJSON(t)
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheckOAuth(t) },
 		ProtoV6ProviderFactories: acctest.ProtoV6ProviderFactories,
 		CheckDestroy:             testAccCheckFederationIssuerArchived,
 		Steps: []resource.TestStep{
 			{
-				Config: testAccFederationIssuerInlineConfig,
+				Config: testAccFederationIssuerInlineConfig(name, issuerURL, keys),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("anthropic_federation_issuer.test", "id"),
-					resource.TestCheckResourceAttr("anthropic_federation_issuer.test", "name", "tf-acc-test-issuer"),
-					resource.TestCheckResourceAttr("anthropic_federation_issuer.test", "issuer_url", "https://tf-acc-test.example.com"),
+					resource.TestCheckResourceAttr("anthropic_federation_issuer.test", "name", name),
+					resource.TestCheckResourceAttr("anthropic_federation_issuer.test", "issuer_url", issuerURL),
 					resource.TestCheckResourceAttr("anthropic_federation_issuer.test", "jwks.type", "inline"),
 					resource.TestCheckResourceAttr("anthropic_federation_issuer.test", "check_jti", "false"),
 					resource.TestCheckResourceAttr("anthropic_federation_issuer.test", "max_jwt_lifetime_seconds", "900"),
@@ -120,9 +95,9 @@ func TestAccFederationIssuerResource_inline(t *testing.T) {
 			},
 			{
 				// Update: rename only.
-				Config: testAccFederationIssuerInlineConfigRenamed,
+				Config: testAccFederationIssuerInlineConfig(name+"-renamed", issuerURL, keys),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("anthropic_federation_issuer.test", "name", "tf-acc-test-issuer-renamed"),
+					resource.TestCheckResourceAttr("anthropic_federation_issuer.test", "name", name+"-renamed"),
 					resource.TestCheckResourceAttr("anthropic_federation_issuer.test", "jwks.type", "inline"),
 				),
 			},

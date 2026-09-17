@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	acctest "github.com/ippontech/terraform-provider-anthropic/internal/acctest"
 
@@ -29,17 +28,6 @@ import (
 // To keep this branch self-contained, the issuer and service account this
 // test's rule targets are created directly through the SDK in test setup, not
 // through those Terraform resources.
-
-// testFixtureRSAJWK is the well-known public RSA JWK from RFC 7517 Appendix
-// A.1. It only needs to be structurally valid: this test never performs a
-// real token exchange, so the key never has to verify a real signature.
-var testFixtureRSAJWK = map[string]any{
-	"kty": "RSA",
-	"n":   "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
-	"e":   "AQAB",
-	"alg": "RS256",
-	"kid": "tf-acc-test-key",
-}
 
 // federationRuleTestFixtures holds the out-of-band issuer and service account
 // a federation rule acceptance test targets.
@@ -63,14 +51,13 @@ func setupFederationRuleTestFixtures(t *testing.T) federationRuleTestFixtures {
 
 	client := newTestOAuthClient()
 	ctx := context.Background()
-	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 
 	issuer, err := client.Beta.Organization.Federation.Issuers.New(ctx, anthropic.BetaOrganizationFederationIssuerNewParams{
-		IssuerURL: fmt.Sprintf("https://tf-acc-test-%s.example.com", suffix),
-		Name:      fmt.Sprintf("tf-acc-issuer-%s", suffix),
+		IssuerURL: fmt.Sprintf("https://%s.example.com", acctest.RandomName("idp")),
+		Name:      acctest.RandomName("issuer"),
 		JWKS: anthropic.BetaOrganizationFederationIssuerNewParamsJWKSUnion{
 			OfInline: &anthropic.BetaJWKSInlineParam{
-				Keys: []map[string]any{testFixtureRSAJWK},
+				Keys: []map[string]any{acctest.FreshRSAJWK(t)},
 			},
 		},
 	})
@@ -79,7 +66,7 @@ func setupFederationRuleTestFixtures(t *testing.T) federationRuleTestFixtures {
 	}
 
 	account, err := client.Beta.Organization.ServiceAccounts.New(ctx, anthropic.BetaOrganizationServiceAccountNewParams{
-		Name: fmt.Sprintf("tf-acc-svc-%s", suffix),
+		Name: acctest.RandomName("svc"),
 	})
 	if err != nil {
 		t.Fatalf("failed to create test service account: %s", err)
@@ -117,10 +104,10 @@ func testAccCheckFederationRuleArchivedAndCleanup(s *terraform.State) error {
 	return nil
 }
 
-func testAccFederationRuleConfig(issuerID, serviceAccountID string, tokenLifetimeSeconds int) string {
+func testAccFederationRuleConfig(name, issuerID, serviceAccountID, workspaceID string, tokenLifetimeSeconds int) string {
 	return fmt.Sprintf(`
 resource "anthropic_federation_rule" "test" {
-  name        = "tf-acc-gha-deploy"
+  name        = %[5]q
   description = "tf-acc test rule"
   issuer_id   = %[1]q
 
@@ -136,11 +123,13 @@ resource "anthropic_federation_rule" "test" {
   workspace_id           = %[3]q
   token_lifetime_seconds = %[4]d
 }
-`, issuerID, serviceAccountID, acctest.TerraformTestsWorkspaceID, tokenLifetimeSeconds)
+`, issuerID, serviceAccountID, workspaceID, tokenLifetimeSeconds, name)
 }
 
 func TestAccFederationRuleResource_basic(t *testing.T) {
 	fixtures := setupFederationRuleTestFixtures(t)
+	name := acctest.RandomName("rule")
+	workspaceID := acctest.TestWorkspaceID(t)
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { acctest.PreCheckOAuth(t) },
@@ -149,14 +138,14 @@ func TestAccFederationRuleResource_basic(t *testing.T) {
 		Steps: []resource.TestStep{
 			// Create and Read
 			{
-				Config: testAccFederationRuleConfig(fixtures.IssuerID, fixtures.ServiceAccountID, 3600),
+				Config: testAccFederationRuleConfig(name, fixtures.IssuerID, fixtures.ServiceAccountID, workspaceID, 3600),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("anthropic_federation_rule.test", "id"),
-					resource.TestCheckResourceAttr("anthropic_federation_rule.test", "name", "tf-acc-gha-deploy"),
+					resource.TestCheckResourceAttr("anthropic_federation_rule.test", "name", name),
 					resource.TestCheckResourceAttr("anthropic_federation_rule.test", "issuer_id", fixtures.IssuerID),
 					resource.TestCheckResourceAttr("anthropic_federation_rule.test", "target.service_account_id", fixtures.ServiceAccountID),
 					resource.TestCheckResourceAttr("anthropic_federation_rule.test", "oauth_scope", "workspace:developer"),
-					resource.TestCheckResourceAttr("anthropic_federation_rule.test", "workspace_id", acctest.TerraformTestsWorkspaceID),
+					resource.TestCheckResourceAttr("anthropic_federation_rule.test", "workspace_id", workspaceID),
 					resource.TestCheckResourceAttr("anthropic_federation_rule.test", "token_lifetime_seconds", "3600"),
 					resource.TestCheckResourceAttr("anthropic_federation_rule.test", "match.subject_prefix", "repo:my-org/my-repo:*"),
 					resource.TestCheckResourceAttrSet("anthropic_federation_rule.test", "issuer_name"),
@@ -165,7 +154,7 @@ func TestAccFederationRuleResource_basic(t *testing.T) {
 			},
 			// Update: token_lifetime_seconds
 			{
-				Config: testAccFederationRuleConfig(fixtures.IssuerID, fixtures.ServiceAccountID, 7200),
+				Config: testAccFederationRuleConfig(name, fixtures.IssuerID, fixtures.ServiceAccountID, workspaceID, 7200),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("anthropic_federation_rule.test", "token_lifetime_seconds", "7200"),
 				),
