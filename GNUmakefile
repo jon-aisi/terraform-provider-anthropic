@@ -12,8 +12,11 @@ lint:
 generate:
 	cd tools; go generate ./...
 
+# Files, not directories: gofmt recurses into a directory, and the root
+# package's directory contains vendor/, which is committed as go mod vendor
+# wrote it.
 fmt:
-	gofmt -s -w -e .
+	find . -path ./vendor -prune -o -name '*.go' -print0 | xargs -0 gofmt -s -w -e
 
 # `-diff` reports what `go mod tidy` would change and exits non-zero, without
 # touching go.mod/go.sum — so the check is safe to run on a dirty worktree and

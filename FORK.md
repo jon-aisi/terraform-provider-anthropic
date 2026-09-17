@@ -84,7 +84,9 @@ Expect conflicts of two kinds:
       and new credential handling go into `REVIEW.md`.
 - [ ] `bash hack/trim-upstream.sh` run; `internal/services` holds only
       `federation`, `serviceaccounts`, `workspaces`.
-- [ ] `go mod tidy && go mod vendor && go mod verify`; `vendor/` committed.
+- [ ] `go mod tidy && go mod vendor && go mod verify`; `vendor/` committed, and
+      `git ls-files --others --ignored --exclude-standard vendor` prints nothing
+      (upstream's `.gitignore` patterns match at any depth).
 - [ ] `go build ./... && go vet ./... && go test ./... && golangci-lint run`.
 - [ ] `cd tools && go generate ./...` (needs `terraform`); `docs/` committed.
 - [ ] `make install .dev.tfrc && TF_CLI_CONFIG_FILE=$PWD/.dev.tfrc terraform -chdir=tests test` for the offline tests (see `provider.yml` for the filter list).

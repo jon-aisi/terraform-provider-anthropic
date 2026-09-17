@@ -144,3 +144,10 @@ spring/
 *.tfstate.backup
 *.terraform.lock.hcl
 .dev.tfrc
+
+# --- Vendored Go modules ---
+# vendor/ is committed in full. The patterns above match at any depth (build/,
+# log/, credentials.*, ...) and would silently drop vendored files; this
+# re-include wins because it comes last. CI asserts nothing under vendor/ is
+# ignored.
+!vendor/**
