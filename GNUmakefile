@@ -43,7 +43,7 @@ sweep:
 
 .dev.tfrc:
 	@GOBIN=$$(go env GOBIN); \
-	printf 'provider_installation {\n  dev_overrides {\n    "registry.terraform.io/ippontech/anthropic" = "%s"\n  }\n  direct {}\n}\n' \
+	printf 'provider_installation {\n  dev_overrides {\n    "terraform.aisi.org.uk/aisi/anthropic" = "%s"\n  }\n  direct {}\n}\n' \
 		"$${GOBIN:-$$(go env GOPATH)/bin}" > $@
 
 # tests/ is the root module: it holds versions.tf (the provider source mapping

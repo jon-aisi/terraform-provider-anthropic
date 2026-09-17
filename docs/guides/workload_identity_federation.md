@@ -144,11 +144,12 @@ The configuration below trusts GitHub Actions, creates a developer service accou
 terraform {
   required_version = ">= 1.11"
   required_providers {
-    # WIF resources exist from 1.35, the list data sources of section 5
-    # from 1.40.
+    # The AISI build, installed from a filesystem mirror (see the
+    # "Installing the AISI build" guide). Pin the exact version: the
+    # fork's versions carry a prerelease suffix.
     anthropic = {
-      source  = "ippontech/anthropic"
-      version = "~> 1.40"
+      source  = "terraform.aisi.org.uk/aisi/anthropic"
+      version = "1.43.2-aisi.1"
     }
   }
 }

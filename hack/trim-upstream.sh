@@ -19,7 +19,7 @@ keep_data_sources=(
   federation_rule_workspaces service_account service_accounts
   service_account_workspaces workspace workspaces
 )
-keep_guides=(workload_identity_federation)
+keep_guides=(install workload_identity_federation)
 
 in_list() {
   local needle=$1; shift

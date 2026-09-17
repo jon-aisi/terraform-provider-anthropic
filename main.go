@@ -28,7 +28,7 @@ func main() {
 	flag.Parse()
 
 	opts := providerserver.ServeOpts{
-		Address: "registry.terraform.io/ippontech/anthropic",
+		Address: "terraform.aisi.org.uk/aisi/anthropic",
 		Debug:   debug,
 	}
 

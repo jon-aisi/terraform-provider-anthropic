@@ -34,7 +34,7 @@ For ad-hoc local development, create or edit `~/.terraformrc` with the path foun
 ```hcl
 provider_installation {
   dev_overrides {
-    "registry.terraform.io/ippontech/anthropic" = "/path/to/your/go/bin"
+    "terraform.aisi.org.uk/aisi/anthropic" = "/path/to/your/go/bin"
   }
   direct {}
 }

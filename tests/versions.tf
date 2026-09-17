@@ -16,7 +16,7 @@ terraform {
     # tflint-ignore: terraform_unused_required_providers -- this root module only
     # exists to resolve the test files' provider blocks; it declares no resources.
     anthropic = {
-      source = "registry.terraform.io/ippontech/anthropic"
+      source = "terraform.aisi.org.uk/aisi/anthropic"
     }
   }
 }
