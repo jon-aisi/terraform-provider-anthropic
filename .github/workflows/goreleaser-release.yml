@@ -34,6 +34,22 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
+      # A v* tag can point at any commit, including one the Provider workflow
+      # never ran on. Re-vendor and diff so the tagged tree matches go.sum
+      # (`go mod verify` alone passes on the runner's empty module cache), then
+      # build and test what GoReleaser is about to ship. The build below uses
+      # vendor/ and needs no network.
+      - name: Verify vendored dependencies
+        run: |
+          go mod vendor
+          go mod verify
+          git diff --exit-code -- vendor go.mod go.sum || (echo "vendor/ does not match go.mod/go.sum at this tag." && exit 1)
+
+      - name: Build and test
+        run: |
+          go build ./...
+          go test ./...
+
       - name: Install syft (SBOM generation)
         uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
 

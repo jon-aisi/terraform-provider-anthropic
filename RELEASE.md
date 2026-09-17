@@ -7,14 +7,42 @@ git tag -s v1.43.2-aisi.1 -m "v1.43.2-aisi.1"
 git push origin v1.43.2-aisi.1
 ```
 
-The tag triggers `.github/workflows/goreleaser-release.yml`, which builds the
-provider for every platform in `.goreleaser.yml`, writes one SPDX SBOM per
-archive, publishes a GitHub release, and attaches a SLSA build provenance
-attestation to every artifact. Verify an artifact with:
+The tag triggers `.github/workflows/goreleaser-release.yml`, which re-vendors
+and diffs `vendor/` against `go.mod`/`go.sum`, builds and tests the tagged
+tree, then builds the provider for every platform in `.goreleaser.yml`,
+writes one SPDX SBOM per archive, publishes a GitHub release, and attaches a
+SLSA build provenance attestation to every artifact. Verify an artifact with:
 
 ```bash
 gh attestation verify terraform-provider-anthropic_<version>_linux_amd64.zip --repo jon-aisi/terraform-provider-anthropic
 ```
+
+## Tag protection (required before the first release from the AISI org repo)
+
+The release workflow runs on any `v*` tag, and a tag can point at any commit,
+including one that never went through a pull request or a green `Provider`
+run. The workflow's own vendor/build/test step catches a tree that does not
+match its lockfile; it does not decide who may cut a release. That control is
+a repository ruleset, which must be configured in the AISI organisation repo
+(rulesets on a personal fork cannot be created through the API on this plan,
+and are not carried across by a fork or transfer):
+
+`Settings > Rules > Rulesets > New ruleset > New tag ruleset`
+
+| Setting | Value |
+|---------|-------|
+| Enforcement status | Active |
+| Target tags | Include by pattern `v*` |
+| Bypass list | The release maintainers only (a team, not "repository admins") |
+| Restrict creations / updates / deletions | All three enabled |
+| Require status checks to pass | `lint`, `test`, `govulncheck` (the `Provider` workflow jobs), `goreleaser-check`, `actionlint`, `poutine` |
+| Require signed commits | Enabled |
+
+With this in place a `v*` tag can only be created by a bypass-list member,
+only on a commit whose `Provider` and `Security` runs are green, and cannot
+be moved after the release is published. Confirm the ruleset exists before
+publishing the first release: the provider binary it produces will hold
+`org:admin` on every organisation that installs it.
 
 ## GPG signing (optional)
 
