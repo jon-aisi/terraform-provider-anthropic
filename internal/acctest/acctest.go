@@ -22,10 +22,12 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -216,7 +218,7 @@ func oauthOrganizationID(ctx context.Context) (string, error) {
 }
 
 func adminOrganizationID(ctx context.Context) (string, error) {
-	client := admin.NewClient(os.Getenv(EnvAdminAPIKey))
+	client := admin.NewClient(os.Getenv(EnvAdminAPIKey), &http.Client{Timeout: 60 * time.Second})
 	if base := os.Getenv(EnvBaseURL); base != "" {
 		client.BaseURL = strings.TrimSuffix(base, "/")
 	}
